@@ -93,6 +93,16 @@ class HciEventParserTests(unittest.TestCase):
         self.assertTrue(support["HCI_LE_Test_End"])
         self.assertTrue(support["HCI_LE_Transmitter_Test[v2]"])
         self.assertFalse(support["HCI_LE_Transmitter_Test[v4]"])
+        self.assertEqual(result.decoded["set_bit_count"], 4)
+        self.assertEqual(
+            result.decoded["supported_commands_by_scope"]["PHY_TEST_CORE"],
+            [
+                "HCI_LE_Receiver_Test [v1]",
+                "HCI_LE_Transmitter_Test [v1]",
+                "HCI_LE_Test_End",
+                "HCI_LE_Transmitter_Test [v2]",
+            ],
+        )
 
     def test_supported_commands_v2_response(self) -> None:
         supported = bytearray(251)
@@ -114,6 +124,16 @@ class HciEventParserTests(unittest.TestCase):
         support = result.decoded["relevant_command_support"]
         self.assertTrue(support["HCI_LE_Transmitter_Test[v4]"])
         self.assertTrue(support["HCI_Read_Local_Supported_Commands[v2]"])
+        self.assertEqual(
+            result.decoded["application_command_support"][
+                "HCI_LE_Transmitter_Test[v4]"
+            ],
+            True,
+        )
+        self.assertEqual(
+            result.decoded["supported_commands_by_scope"]["CAPABILITY_QUERY"],
+            ["HCI_Read_Local_Supported_Commands [v2]"],
+        )
 
     def test_supported_commands_response_length_mismatch(self) -> None:
         frame = bytes.fromhex("04 0E 04 01 02 10 00")

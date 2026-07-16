@@ -67,7 +67,6 @@ class ConsoleCommandDefinition:
     parameters: tuple[ParameterDefinition, ...] = ()
     response_kind: ResponseKind = ResponseKind.COMMAND_COMPLETE
     completion_event_code: int | None = None
-    description: str = ""
 
     @property
     def display_name(self) -> str:
@@ -260,7 +259,6 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
         "v1",
         LE_RF_PHY_TEST,
         (CHANNEL_PARAMETER_RX,),
-        description="Start an LE receiver test using the LE 1M PHY.",
     ),
     ConsoleCommandDefinition(
         0x2033,
@@ -290,7 +288,6 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
         None,
         LE_RF_PHY_TEST,
         (),
-        description="End the current LE receiver or transmitter test.",
     ),
     ConsoleCommandDefinition(
         0x1002,
@@ -298,9 +295,6 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
         "v1",
         INFORMATIONAL_PARAMETERS,
         (),
-        description=(
-            "Read the 64-octet Supported Commands bit field from the Controller."
-        ),
     ),
     ConsoleCommandDefinition(
         0x1010,
@@ -308,9 +302,6 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
         "v2",
         INFORMATIONAL_PARAMETERS,
         (),
-        description=(
-            "Read the extended 251-octet Supported Commands bit field."
-        ),
     ),
 )
 

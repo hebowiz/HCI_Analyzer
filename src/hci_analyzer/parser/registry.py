@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Final
 
+from hci_analyzer.parser.supported_commands import support_for_commands
+
 
 @dataclass(slots=True, frozen=True)
 class CommandDefinition:
@@ -132,7 +134,4 @@ def command_display_name(opcode: int) -> str | None:
 
 def decode_supported_command_bits(data: bytes) -> dict[str, bool]:
     """Decode the capability bits relevant to this application."""
-    return {
-        name: octet < len(data) and bool(data[octet] & (1 << bit))
-        for name, (octet, bit) in SUPPORTED_COMMAND_BITS.items()
-    }
+    return support_for_commands(data, SUPPORTED_COMMAND_BITS)

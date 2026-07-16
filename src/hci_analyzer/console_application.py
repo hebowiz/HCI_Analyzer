@@ -18,8 +18,9 @@ from hci_analyzer.console_settings import (
     CommandConsoleSettingsStore,
 )
 from hci_analyzer.gui.command_console import CommandConsoleWindow
-from hci_analyzer.models import SerialPortConfig
+from hci_analyzer.models import ParseResult, SerialPortConfig
 from hci_analyzer.parser.facade import HciParser
+from hci_analyzer.parser.supported_commands import support_for_commands
 from hci_analyzer.serial.ports import list_serial_ports
 from hci_analyzer.serial.transport import (
     HciSerialTransport,
@@ -47,12 +48,14 @@ class HciCommandConsoleApplication:
             on_send=self._send,
             on_clear_log=lambda: None,
             on_reset=self._reset_current_values,
+            on_reset_command_support=self._clear_command_support,
         )
         self._window.set_refresh_handler(self._refresh_ports)
         self._window.set_close_handler(self._close)
         self._selected_definition: ConsoleCommandDefinition | None = None
         self._parameter_value_cache: dict[int, dict[str, Any]] = {}
         self._latest_encoded: EncodedCommand | None = None
+        self._command_support: dict[int, bool] = {}
 
     def run(self) -> None:
         """Start the Command Console event loop."""
@@ -123,6 +126,11 @@ class HciCommandConsoleApplication:
         encoded = self._latest_encoded
         if encoded is None:
             return
+        if self._command_support.get(definition.opcode) is False:
+            self._append_application_error(
+                f"{definition.display_name} is not supported by the Controller"
+            )
+            return
         try:
             self._transport.send(
                 encoded.frame,
@@ -174,12 +182,41 @@ class HciCommandConsoleApplication:
             parsed = event.parsed
             if parsed is None:
                 return
+            self._apply_supported_commands(parsed)
             event_name = parsed.decoded.get("event_name")
             status = parsed.decoded.get("status")
             if event_name == "HCI_Command_Complete" or (
                 event_name == "HCI_Command_Status" and status != 0
             ):
                 self._window.set_busy_state(False)
+
+    def _apply_supported_commands(self, parsed: ParseResult) -> None:
+        if not parsed.success:
+            return
+        decoded = parsed.decoded
+        if (
+            decoded.get("response_type") != "Supported_Commands"
+            or decoded.get("status") != 0
+        ):
+            return
+        raw_values = decoded.get("supported_commands")
+        if not isinstance(raw_values, list):
+            return
+        supported_commands = bytes(raw_values)
+        names = [
+            definition.display_name
+            for definition in CONSOLE_COMMAND_DEFINITIONS
+        ]
+        by_name = support_for_commands(supported_commands, names)
+        self._command_support = {
+            definition.opcode: by_name[definition.display_name]
+            for definition in CONSOLE_COMMAND_DEFINITIONS
+        }
+        self._window.set_command_support(self._command_support)
+
+    def _clear_command_support(self) -> None:
+        self._command_support.clear()
+        self._window.set_command_support({})
 
     def _append_application_error(self, message: str) -> None:
         self._window.append_transport_event(

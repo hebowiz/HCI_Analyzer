@@ -11,6 +11,7 @@ from hci_analyzer.parser.registry import (
     command_display_name,
     decode_supported_command_bits,
 )
+from hci_analyzer.parser.supported_commands import decode_supported_commands
 
 
 class HciEventParser:
@@ -107,6 +108,7 @@ class HciEventParser:
             decoded["num_packets"] = int.from_bytes(return_params[1:3], "little")
         elif opcode in (0x1002, 0x1010):
             supported_commands = return_params[1:]
+            support_report = decode_supported_commands(supported_commands)
             decoded.update(
                 {
                     "response_type": "Supported_Commands",
@@ -116,6 +118,7 @@ class HciEventParser:
                     "relevant_command_support": decode_supported_command_bits(
                         supported_commands
                     ),
+                    **support_report,
                 }
             )
         else:

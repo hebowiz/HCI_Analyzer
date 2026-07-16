@@ -96,6 +96,7 @@ class CommandConsoleWindow:
         on_send: Callable[[Mapping[str, Any]], None],
         on_clear_log: Callable[[], None],
         on_reset: Callable[[], None] | None = None,
+        on_reset_command_support: Callable[[], None] | None = None,
     ) -> None:
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
@@ -104,6 +105,7 @@ class CommandConsoleWindow:
         self._on_send = on_send
         self._on_clear_log = on_clear_log
         self._on_reset = on_reset or (lambda: None)
+        self._on_reset_command_support = on_reset_command_support or (lambda: None)
         self._refresh_handler: Callable[[], None] = lambda: None
 
         self._root = tk.Tk()
@@ -127,6 +129,8 @@ class CommandConsoleWindow:
         self._connected = False
         self._busy = False
         self._preview_valid = False
+        self._selected_command_supported: bool | None = None
+        self._command_support: dict[int, bool] = {}
         self._suspend_change_callback = False
 
         self._port_variable = tk.StringVar()
@@ -137,6 +141,7 @@ class CommandConsoleWindow:
         self._version_variable = tk.StringVar()
         self._opcode_variable = tk.StringVar(value="-")
         self._preview_variable = tk.StringVar(value="-")
+        self._support_variable = tk.StringVar(value="対応状況: 未取得")
         self._filter_variable = tk.StringVar(value="すべて")
         self._build_window()
 
@@ -184,7 +189,11 @@ class CommandConsoleWindow:
     def show_parameter_form(self, definition: ConsoleCommandDefinition) -> None:
         """Generate editors for every parameter in the selected command."""
         self._current_definition = definition
+        self._selected_command_supported = self._command_support.get(
+            definition.opcode
+        )
         self._opcode_variable.set(f"0x{definition.opcode:04X}")
+        self._update_support_text()
         self._parameter_canvas.yview_moveto(0.0)
         for child in self._parameter_frame.winfo_children():
             child.destroy()
@@ -196,22 +205,12 @@ class CommandConsoleWindow:
         self._error_labels.clear()
         self._parameter_widgets.clear()
 
-        if definition.description:
-            ttk.Label(
-                self._parameter_frame,
-                text=definition.description,
-                wraplength=620,
-            ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
-            start_row = 1
-        else:
-            start_row = 0
-
         if not definition.parameters:
             ttk.Label(self._parameter_frame, text="パラメーターはありません。").grid(
-                row=start_row, column=0, sticky="w", pady=8
+                row=0, column=0, sticky="w", pady=8
             )
 
-        for index, parameter in enumerate(definition.parameters, start=start_row):
+        for index, parameter in enumerate(definition.parameters):
             self._create_parameter_row(index, parameter)
         self._parameter_frame.columnconfigure(1, weight=1)
         self._root.after_idle(lambda: self._parameter_canvas.yview_moveto(0.0))
@@ -313,6 +312,18 @@ class CommandConsoleWindow:
         self._busy = busy
         self._update_send_state()
 
+    def set_command_support(self, support: Mapping[int, bool]) -> None:
+        """Apply Controller capability results to command transmission."""
+        self._command_support = dict(support)
+        definition = self._current_definition
+        self._selected_command_supported = (
+            self._command_support.get(definition.opcode)
+            if definition is not None
+            else None
+        )
+        self._update_support_text()
+        self._update_send_state()
+
     def set_refresh_handler(self, callback: Callable[[], None]) -> None:
         self._refresh_handler = callback
         self._refresh_button.configure(command=callback)
@@ -363,6 +374,11 @@ class CommandConsoleWindow:
         ttk.Label(connection, textvariable=self._status_variable).grid(
             row=0, column=7, padx=(8, 8), pady=8
         )
+        ttk.Button(
+            connection,
+            text="コマンド対応初期化",
+            command=self._on_reset_command_support,
+        ).grid(row=0, column=8, padx=(8, 8), pady=8)
 
         command_area = ttk.Frame(self._root)
         command_area.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
@@ -400,6 +416,11 @@ class CommandConsoleWindow:
         ttk.Label(selection, textvariable=self._opcode_variable).grid(
             row=7, column=0, sticky="w", padx=8, pady=(0, 8)
         )
+        ttk.Label(
+            selection,
+            textvariable=self._support_variable,
+            wraplength=220,
+        ).grid(row=8, column=0, sticky="w", padx=8, pady=(0, 8))
 
         parameters_group = ttk.LabelFrame(command_area, text="パラメーター設定")
         parameters_group.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
@@ -587,12 +608,19 @@ class CommandConsoleWindow:
         ]
         self._version_combo.configure(values=versions)
         if versions:
-            self._version_variable.set(self._preferred_version(versions))
+            self._version_variable.set(
+                self._preferred_version(command, versions)
+            )
             self._select_definition()
 
     @staticmethod
-    def _preferred_version(versions: list[str]) -> str:
-        """Prefer v2 when available, otherwise use the first version."""
+    def _preferred_version(command: str, versions: list[str]) -> str:
+        """Choose the initial version for a selected command."""
+        if (
+            command == "HCI_Read_Local_Supported_Commands"
+            and "v1" in versions
+        ):
+            return "v1"
         return "v2" if "v2" in versions else versions[0]
 
     def _select_definition(self) -> None:
@@ -691,8 +719,23 @@ class CommandConsoleWindow:
         self._on_send(self.get_parameter_values())
 
     def _update_send_state(self) -> None:
-        enabled = self._connected and not self._busy and self._preview_valid
+        enabled = (
+            self._connected
+            and not self._busy
+            and self._preview_valid
+            and self._selected_command_supported is not False
+        )
         self._send_button.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+
+    def _update_support_text(self) -> None:
+        if self._selected_command_supported is True:
+            self._support_variable.set("対応状況: Controller対応")
+        elif self._selected_command_supported is False:
+            self._support_variable.set(
+                "対応状況: Controller未対応（送信できません）"
+            )
+        else:
+            self._support_variable.set("対応状況: 未取得")
 
     def _event_matches_filter(self, event: TransportEvent) -> bool:
         selected = self._filter_variable.get()
