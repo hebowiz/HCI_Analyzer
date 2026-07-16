@@ -12,8 +12,8 @@ dependencies = [
 ]
 
 [project.gui-scripts]
-hci-analyzer = "hci_analyzer.__main__:main"
-hci-command-console = "hci_analyzer.console_main:main"
+hci-analyzer = "hci_analyzer.analyzer_main:main"
+hci-command-console = "hci_analyzer.command_console_main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

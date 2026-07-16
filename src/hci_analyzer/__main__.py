@@ -1,14 +1,7 @@
 """Module entry point for ``python -m hci_analyzer``."""
 
-from hci_analyzer.application import HciAnalyzerApplication
-
-
-def main() -> None:
-    """Start the HCI Analyzer application."""
-    application = HciAnalyzerApplication()
-    application.run()
+from hci_analyzer.analyzer_main import main
 
 
 if __name__ == "__main__":
     main()
-

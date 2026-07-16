@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from hci_analyzer.console_main import main
+from hci_analyzer.command_console_main import main
 
 
 if __name__ == "__main__":

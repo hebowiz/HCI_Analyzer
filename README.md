@@ -31,7 +31,7 @@ python -m pip install -r requirements.txt
 ## 起動
 
 ```powershell
-python main.py
+python analyzer.py
 ```
 
 2つのシリアルポートと共通ボーレートを選択し、「解析開始」を押します。
