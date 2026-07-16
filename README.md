@@ -65,7 +65,11 @@ Analyzerで「解析終了」を押すと、直近のJSONLログからHostとCon
 python command_console.py
 ```
 
-詳細設計は
+Analyzerの詳細設計は
+[`docs/hci_analyzer_detailed_design.md`](docs/hci_analyzer_detailed_design.md)
+を参照してください。
+
+Command Consoleの詳細設計は
 [`docs/hci_command_console_detailed_design.md`](docs/hci_command_console_detailed_design.md)
 を参照してください。
 
