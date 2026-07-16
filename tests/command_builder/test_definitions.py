@@ -1,0 +1,42 @@
+"""Tests for Command Console command schemas."""
+
+import unittest
+
+from hci_analyzer.command_builder.definitions import (
+    COMMAND_DEFINITIONS_BY_OPCODE,
+    CONSOLE_COMMAND_DEFINITIONS,
+)
+
+
+class CommandDefinitionTests(unittest.TestCase):
+    def test_initial_scope_contains_eight_commands(self) -> None:
+        self.assertEqual(len(CONSOLE_COMMAND_DEFINITIONS), 8)
+        self.assertEqual(
+            set(COMMAND_DEFINITIONS_BY_OPCODE),
+            {0x201D, 0x2033, 0x204F, 0x201E, 0x2034, 0x2050, 0x207B, 0x201F},
+        )
+
+    def test_every_parameter_has_a_default(self) -> None:
+        for definition in CONSOLE_COMMAND_DEFINITIONS:
+            with self.subTest(command=definition.display_name):
+                for parameter in definition.parameters:
+                    self.assertIsNotNone(parameter.default)
+
+    def test_command_order_starts_with_transmitter_then_receiver(self) -> None:
+        command_order = list(
+            dict.fromkeys(
+                definition.name for definition in CONSOLE_COMMAND_DEFINITIONS
+            )
+        )
+        self.assertEqual(
+            command_order,
+            [
+                "HCI_LE_Transmitter_Test",
+                "HCI_LE_Receiver_Test",
+                "HCI_LE_Test_End",
+            ],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

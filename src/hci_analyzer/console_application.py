@@ -1,23 +1,214 @@
 """Top-level coordination for the HCI Command Console."""
 
-from hci_analyzer.command_builder.encoder import HciCommandEncoder
+from __future__ import annotations
+
+import queue
+from datetime import datetime
+from typing import Any, Mapping
+
+from hci_analyzer.command_builder.definitions import (
+    COMMAND_DEFINITIONS_BY_OPCODE,
+    CONSOLE_COMMAND_DEFINITIONS,
+    ConsoleCommandDefinition,
+)
+from hci_analyzer.command_builder.encoder import EncodedCommand, HciCommandEncoder
 from hci_analyzer.command_builder.validation import CommandValidator
+from hci_analyzer.console_settings import (
+    CommandConsoleSettings,
+    CommandConsoleSettingsStore,
+)
 from hci_analyzer.gui.command_console import CommandConsoleWindow
+from hci_analyzer.models import SerialPortConfig
 from hci_analyzer.parser.facade import HciParser
-from hci_analyzer.serial.transport import HciSerialTransport
+from hci_analyzer.serial.ports import list_serial_ports
+from hci_analyzer.serial.transport import (
+    HciSerialTransport,
+    TransportEvent,
+    TransportEventKind,
+)
 
 
 class HciCommandConsoleApplication:
     """Compose command selection, encoding, serial transport, and logging UI."""
 
     def __init__(self) -> None:
-        self._parser: HciParser
-        self._encoder: HciCommandEncoder
-        self._validator: CommandValidator
-        self._transport: HciSerialTransport
-        self._window: CommandConsoleWindow
+        self._parser = HciParser()
+        self._validator = CommandValidator()
+        self._encoder = HciCommandEncoder(self._validator, self._parser)
+        self._transport_events: queue.Queue[TransportEvent] = queue.Queue()
+        self._transport = HciSerialTransport(self._transport_events.put, self._parser)
+        self._settings_store = CommandConsoleSettingsStore()
+        self._saved_settings = self._settings_store.load()
+        self._window = CommandConsoleWindow(
+            on_connect=self._connect,
+            on_disconnect=self._disconnect,
+            on_command_selected=self._select_command,
+            on_preview=self._preview,
+            on_send=self._send,
+            on_clear_log=lambda: None,
+            on_reset=self._reset_current_values,
+        )
+        self._window.set_refresh_handler(self._refresh_ports)
+        self._window.set_close_handler(self._close)
+        self._selected_definition: ConsoleCommandDefinition | None = None
+        self._parameter_value_cache: dict[int, dict[str, Any]] = {}
+        self._latest_encoded: EncodedCommand | None = None
 
     def run(self) -> None:
         """Start the Command Console event loop."""
-        raise NotImplementedError
+        self._refresh_ports(self._saved_settings.port)
+        self._window.set_baud_rate(self._saved_settings.baud_rate)
+        self._window.set_command_definitions(CONSOLE_COMMAND_DEFINITIONS)
+        self._window.after(50, self._drain_transport_events)
+        self._window.run()
 
+    def _refresh_ports(self, preferred_port: str | None = None) -> None:
+        try:
+            self._window.set_serial_ports(list_serial_ports(), preferred_port)
+        except Exception as exc:
+            self._append_application_error(f"Port enumeration failed: {exc}")
+
+    def _select_command(self, opcode: int) -> None:
+        self._cache_current_values()
+        definition = COMMAND_DEFINITIONS_BY_OPCODE[opcode]
+        self._selected_definition = definition
+        self._window.show_parameter_form(definition)
+        values = self._parameter_value_cache.get(opcode, self._defaults(definition))
+        self._window.set_parameter_values(values)
+
+    def _preview(self, values: Mapping[str, Any]) -> None:
+        definition = self._selected_definition
+        if definition is None:
+            return
+        self._parameter_value_cache[definition.opcode] = dict(values)
+        validation = self._validator.validate(definition, values)
+        issues: dict[str, str] = {}
+        for issue in validation.issues:
+            key = issue.parameter_name or "__command__"
+            issues.setdefault(key, issue.message)
+        self._window.show_validation_issues(issues)
+        if not validation.valid:
+            self._latest_encoded = None
+            self._window.show_packet_preview(b"")
+            return
+        try:
+            encoded = self._encoder.encode(definition, validation.normalized_values)
+        except ValueError as exc:
+            self._latest_encoded = None
+            self._window.show_validation_issues({"__command__": str(exc)})
+            self._window.show_packet_preview(b"")
+            return
+        self._latest_encoded = encoded
+        self._window.show_packet_preview(encoded.frame)
+
+    def _connect(self) -> None:
+        try:
+            port, baud_rate = self._window.get_connection_settings()
+            if not port:
+                raise ValueError("シリアルポートを選択してください")
+            self._transport.connect(
+                SerialPortConfig(port, baud_rate, f"Console:{port}")
+            )
+        except Exception as exc:
+            self._append_application_error(f"Connection failed: {exc}")
+
+    def _disconnect(self) -> None:
+        self._transport.disconnect()
+
+    def _send(self, values: Mapping[str, Any]) -> None:
+        definition = self._selected_definition
+        if definition is None:
+            return
+        self._preview(values)
+        encoded = self._latest_encoded
+        if encoded is None:
+            return
+        try:
+            self._transport.send(
+                encoded.frame,
+                expected_opcode=definition.opcode,
+                response_timeout_seconds=3.0,
+            )
+        except Exception as exc:
+            self._append_application_error(f"Send request failed: {exc}")
+            return
+        self._window.set_busy_state(True)
+
+    def _reset_current_values(self) -> None:
+        definition = self._selected_definition
+        if definition is None:
+            return
+        defaults = self._defaults(definition)
+        self._parameter_value_cache[definition.opcode] = defaults
+        self._window.set_parameter_values(defaults)
+
+    def _cache_current_values(self) -> None:
+        definition = self._selected_definition
+        if definition is None:
+            return
+        self._parameter_value_cache[definition.opcode] = (
+            self._window.get_parameter_values()
+        )
+
+    def _drain_transport_events(self) -> None:
+        while True:
+            try:
+                event = self._transport_events.get_nowait()
+            except queue.Empty:
+                break
+            self._handle_transport_event(event)
+        self._window.after(50, self._drain_transport_events)
+
+    def _handle_transport_event(self, event: TransportEvent) -> None:
+        self._window.append_transport_event(event)
+        if event.kind == TransportEventKind.CONNECTED:
+            self._window.set_connected_state(True)
+        elif event.kind == TransportEventKind.DISCONNECTED:
+            self._window.set_connected_state(False)
+            self._window.set_busy_state(False)
+        elif event.kind == TransportEventKind.RESPONSE_TIMEOUT:
+            self._window.set_busy_state(False)
+        elif event.kind == TransportEventKind.ERROR and event.transaction_id is not None:
+            self._window.set_busy_state(False)
+        elif event.kind == TransportEventKind.RECEIVED and event.transaction_id is not None:
+            parsed = event.parsed
+            if parsed is None:
+                return
+            event_name = parsed.decoded.get("event_name")
+            status = parsed.decoded.get("status")
+            if event_name == "HCI_Command_Complete" or (
+                event_name == "HCI_Command_Status" and status != 0
+            ):
+                self._window.set_busy_state(False)
+
+    def _append_application_error(self, message: str) -> None:
+        self._window.append_transport_event(
+            TransportEvent(
+                timestamp=datetime.now().astimezone(),
+                kind=TransportEventKind.ERROR,
+                source="Application",
+                message=message,
+            )
+        )
+
+    def _close(self) -> None:
+        try:
+            port, baud_rate = self._window.get_connection_settings()
+            self._settings_store.save(
+                CommandConsoleSettings(port=port, baud_rate=baud_rate)
+            )
+        except Exception as exc:
+            self._append_application_error(f"Settings save failed: {exc}")
+        self._transport.disconnect()
+        self._window.destroy()
+
+    @staticmethod
+    def _defaults(definition: ConsoleCommandDefinition) -> dict[str, Any]:
+        return {
+            parameter.name: (
+                list(parameter.default)
+                if isinstance(parameter.default, tuple)
+                else parameter.default
+            )
+            for parameter in definition.parameters
+        }

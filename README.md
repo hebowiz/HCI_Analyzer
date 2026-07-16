@@ -37,12 +37,16 @@ python main.py
 両方に同じポートを選択した場合、そのポートだけを1つの受信スレッドで監視します。
 アプリは受信専用であり、シリアルポートへのデータ送信は行いません。
 
-Command Console用の構造と別エントリーポイントも用意していますが、送受信・
-コマンド生成・専用GUIの詳細実装は今後追加します。
+Command Consoleでは、GUIからLE RF PHY Testコマンドとパラメーターを選択し、
+UART HCI Commandを送信して応答Eventを確認できます。
 
 ```powershell
 python command_console.py
 ```
+
+詳細設計は
+[`docs/hci_command_console_detailed_design.md`](docs/hci_command_console_detailed_design.md)
+を参照してください。
 
 ## テスト
 
