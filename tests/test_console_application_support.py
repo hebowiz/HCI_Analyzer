@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime
 
 from hci_analyzer.console_application import HciCommandConsoleApplication
+from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
 from hci_analyzer.models import ParseResult
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 
@@ -11,6 +12,8 @@ from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 class _WindowStub:
     def __init__(self) -> None:
         self.support: dict[int, bool] = {}
+        self.values: dict[str, object] = {}
+        self.on_form_shown = lambda _definition, _values: None
 
     def set_command_support(self, support: dict[int, bool]) -> None:
         self.support = dict(support)
@@ -24,11 +27,31 @@ class _WindowStub:
     def set_busy_state(self, _busy: bool) -> None:
         return None
 
+    def get_parameter_values(self) -> dict[str, object]:
+        return dict(self.values)
+
+    def show_parameter_form(self, definition: object) -> None:
+        parameters = getattr(definition, "parameters")
+        self.values = {
+            parameter.name: (
+                list(parameter.default)
+                if isinstance(parameter.default, tuple)
+                else parameter.default
+            )
+            for parameter in parameters
+        }
+        self.on_form_shown(definition, dict(self.values))
+
+    def set_parameter_values(self, values: dict[str, object]) -> None:
+        self.values = dict(values)
+
 
 class CommandConsoleSupportTests(unittest.TestCase):
     def setUp(self) -> None:
         self.application = object.__new__(HciCommandConsoleApplication)
         self.application._command_support = {}
+        self.application._parameter_value_cache = {}
+        self.application._selected_definition = None
         self.application._window = _WindowStub()
 
     def test_successful_capability_response_updates_console_commands(self) -> None:
@@ -79,6 +102,32 @@ class CommandConsoleSupportTests(unittest.TestCase):
             )
 
         self.assertEqual(self.application._command_support, {0x201D: False})
+
+    def test_command_parameters_are_restored_after_switching_commands(self) -> None:
+        self.application._window.on_form_shown = (
+            lambda definition, values: self.application._parameter_value_cache.__setitem__(
+                definition.opcode, values
+            )
+        )
+        transmitter_v3 = COMMAND_DEFINITIONS_BY_OPCODE[0x2050]
+        self.application._select_command(transmitter_v3.opcode)
+        self.application._window.values.update(
+            {
+                "TX_Channel": "7",
+                "PHY": 0x03,
+                "Antenna_IDs": ["3", "4", "5"],
+            }
+        )
+
+        self.application._select_command(0x2033)
+        self.application._select_command(transmitter_v3.opcode)
+
+        self.assertEqual(self.application._window.values["TX_Channel"], "7")
+        self.assertEqual(self.application._window.values["PHY"], 0x03)
+        self.assertEqual(
+            self.application._window.values["Antenna_IDs"],
+            ["3", "4", "5"],
+        )
 
 
 if __name__ == "__main__":

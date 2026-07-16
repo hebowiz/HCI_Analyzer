@@ -74,9 +74,11 @@ class HciCommandConsoleApplication:
     def _select_command(self, opcode: int) -> None:
         self._cache_current_values()
         definition = COMMAND_DEFINITIONS_BY_OPCODE[opcode]
+        values = self._parameter_value_cache.get(
+            opcode, self._defaults(definition)
+        )
         self._selected_definition = definition
         self._window.show_parameter_form(definition)
-        values = self._parameter_value_cache.get(opcode, self._defaults(definition))
         self._window.set_parameter_values(values)
 
     def _preview(self, values: Mapping[str, Any]) -> None:
