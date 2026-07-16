@@ -1,2 +1,0 @@
-"""Serial monitoring test package."""
-

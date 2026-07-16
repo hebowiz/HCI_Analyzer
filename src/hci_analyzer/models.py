@@ -54,6 +54,14 @@ class ParseError:
     message: str
     details: dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation."""
+        return {
+            "code": self.code,
+            "message": self.message,
+            "details": self.details,
+        }
+
 
 @dataclass(slots=True)
 class ParseResult:
@@ -64,6 +72,16 @@ class ParseResult:
     raw_data: bytes
     decoded: dict[str, Any] = field(default_factory=dict)
     error: ParseError | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible parser result dictionary."""
+        return {
+            "success": self.success,
+            "packet_type": self.packet_type,
+            "raw_data": self.raw_data.hex(" ").upper(),
+            "decoded": self.decoded,
+            "error": self.error.to_dict() if self.error is not None else None,
+        }
 
 
 @dataclass(slots=True)
@@ -85,4 +103,3 @@ class LogSession:
 
     started_at: datetime
     file_path: Path
-
