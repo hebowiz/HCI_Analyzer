@@ -169,7 +169,7 @@ class SerialPortWorker:
 
 
 class DualSerialMonitor:
-    """Own and coordinate the two serial receive workers."""
+    """Own and coordinate up to two serial receive workers."""
 
     def __init__(
         self, on_record: RecordCallback, parser: HciParser | None = None
@@ -183,13 +183,14 @@ class DualSerialMonitor:
         first_port: SerialPortConfig,
         second_port: SerialPortConfig,
     ) -> None:
-        """Start monitoring two configured ports."""
-        if first_port.port == second_port.port:
-            raise ValueError("The same serial port cannot be selected twice")
+        """Start monitoring one or two configured ports."""
         self.stop()
+        configurations = [first_port]
+        if second_port.port != first_port.port:
+            configurations.append(second_port)
         workers = [
-            SerialPortWorker(first_port, self._on_record, self._parser),
-            SerialPortWorker(second_port, self._on_record, self._parser),
+            SerialPortWorker(config, self._on_record, self._parser)
+            for config in configurations
         ]
         started: list[SerialPortWorker] = []
         try:

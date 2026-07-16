@@ -55,14 +55,13 @@ class HciAnalyzerApplication:
             first, second, baud_rate = self._window.get_monitor_settings()
             if not first or not second:
                 raise ValueError("2つのシリアルポートを選択してください")
-            if first == second:
-                raise ValueError("異なる2つのシリアルポートを選択してください")
 
             session = self._logger.start_session()
             self._monitor.start(
                 SerialPortConfig(first, baud_rate, f"Port1:{first}"),
                 SerialPortConfig(second, baud_rate, f"Port2:{second}"),
             )
+            monitored_ports = first if first == second else f"{first}, {second}"
             self._monitoring = True
             self._window.set_monitoring_state(True)
             self._handle_record(
@@ -72,7 +71,7 @@ class HciAnalyzerApplication:
                     direction=TrafficDirection.UNKNOWN,
                     kind=RecordKind.SYSTEM,
                     message=(
-                        f"Monitoring started: {first}, {second}, {baud_rate} baud; "
+                        f"Monitoring started: {monitored_ports}, {baud_rate} baud; "
                         f"log={session.file_path}"
                     ),
                 )
