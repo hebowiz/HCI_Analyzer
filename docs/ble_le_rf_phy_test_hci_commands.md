@@ -10,6 +10,8 @@
   - Vol 4, Part A, Section 2: UART Transport Layer packet indicators
   - Vol 4, Part E, Section 5.4.1: HCI Command packet
   - Vol 4, Part E, Section 5.4.4: HCI Event packet
+  - Vol 4, Part E, Section 6.27: Supported Commands bit field
+  - Vol 4, Part E, Section 7.4.2: HCI_Read_Local_Supported_Commands command
   - Vol 4, Part E, Section 7.7.14: HCI_Command_Complete event
   - Vol 4, Part E, Section 7.7.15: HCI_Command_Status event
   - Vol 4, Part E, Section 7.7.65.21: HCI_LE_Connectionless_IQ_Report event
@@ -57,7 +59,7 @@ UART HCI を使う場合、シリアル上では HCI Command packet indicator `0
 - DUTをテストモードへ入れる vendor-specific command
 - UARTボーレート設定、RTS/CTS、リセット制御
 - OSやベンダードライバが送る初期化コマンド
-- `HCI_Reset`、`HCI_Read_Local_Supported_Commands` などの補助的な問い合わせ
+- `HCI_Reset`、`HCI_Read_Local_Version_Information` などの補助的な問い合わせ
 - vendor-specific event `0xFF`
 
 ---
@@ -126,6 +128,7 @@ hci_transport:
     opcode_endianness: little
     opcode_format: "Opcode = (OGF << 10) | OCF"
     le_controller_ogf: 0x08
+    informational_parameters_ogf: 0x04
 
 commands:
   - name: HCI_LE_Receiver_Test
@@ -271,6 +274,27 @@ commands:
         parameters: []
         immediate_response: HCI_Command_Status
         completion_event: HCI_LE_CS_Test_End_Complete
+
+  - name: HCI_Read_Local_Supported_Commands
+    category: Informational_Parameters
+    purpose: capability_query
+    versions:
+      - version: v1
+        ogf: 0x04
+        ocf: 0x0002
+        opcode: 0x1002
+        uart_prefix: "01 02 10"
+        parameter_total_length: 0
+        parameters: []
+        response: HCI_Command_Complete_Status_Supported_Commands_64_Octets
+      - version: v2
+        ogf: 0x04
+        ocf: 0x0010
+        opcode: 0x1010
+        uart_prefix: "01 10 10"
+        parameter_total_length: 0
+        parameters: []
+        response: HCI_Command_Complete_Status_Supported_Commands_251_Octets
 ```
 
 ---
@@ -972,24 +996,996 @@ def parse_hci_uart_event(frame: bytes) -> dict:
 
 ---
 
-## 9. Supported Commands での確認ポイント
 
-参照: Bluetooth Core Specification v6.3 Vol 4, Part E, Supported Commands table
+## 9. Capability query: HCI_Read_Local_Supported_Commands
 
-`HCI_Read_Local_Supported_Commands` の戻り値で、以下のbitが立っているか確認できる。これは command解析の前処理として便利。
+目的: Controller がどの標準HCIコマンドをサポートしているかを、テスト開始前に問い合わせる。
 
-| Supported Commands octet | bit | Command |
-|---:|---:|---|
-| 23 | 3 | `HCI_LE_CS_Test` |
-| 23 | 4 | `HCI_LE_CS_Test_End` |
-| 28 | 4 | `HCI_LE_Receiver_Test [v1]` |
-| 28 | 5 | `HCI_LE_Transmitter_Test [v1]` |
-| 28 | 6 | `HCI_LE_Test_End` |
-| 35 | 7 | `HCI_LE_Receiver_Test [v2]` |
-| 36 | 0 | `HCI_LE_Transmitter_Test [v2]` |
-| 39 | 3 | `HCI_LE_Receiver_Test [v3]` |
-| 39 | 4 | `HCI_LE_Transmitter_Test [v3]` |
-| 45 | 0 | `HCI_LE_Transmitter_Test [v4]` |
+参照:
+- Bluetooth Core Specification v6.3 Vol 4, Part E, Section 7.4.2: HCI_Read_Local_Supported_Commands command
+- Bluetooth Core Specification v6.3 Vol 4, Part E, Section 6.27: Supported Commands bit field
+- Bluetooth Core Specification v6.3 Vol 4, Part E, Section 7.7.14: HCI_Command_Complete event
+
+### 9.1 コマンド定義
+
+`HCI_Read_Local_Supported_Commands` は Informational Parameters command group のコマンドであり、LE Controller command ではない。したがって OGF は `0x08` ではなく `0x04`。
+
+Opcode 計算:
+
+```text
+Opcode = (OGF << 10) | OCF
+```
+
+| Command | OGF | OCF | Opcode | UART HCI bytes | Parameters | 戻り値 |
+|---|---:|---:|---:|---|---|---|
+| `HCI_Read_Local_Supported_Commands [v1]` | `0x04` | `0x0002` | `0x1002` | `01 02 10 00` | なし | `Status` + `Supported_Commands[64]` |
+| `HCI_Read_Local_Supported_Commands [v2]` | `0x04` | `0x0010` | `0x1010` | `01 10 10 00` | なし | `Status` + `Supported_Commands[251]` |
+
+### 9.2 UART HCIコマンド例
+
+v1:
+
+```text
+01 02 10 00
+```
+
+内訳:
+
+```text
+01        HCI Command packet indicator
+02 10     Opcode = 0x1002 = HCI_Read_Local_Supported_Commands [v1]
+00        Parameter_Total_Length = 0
+```
+
+v2:
+
+```text
+01 10 10 00
+```
+
+内訳:
+
+```text
+01        HCI Command packet indicator
+10 10     Opcode = 0x1010 = HCI_Read_Local_Supported_Commands [v2]
+00        Parameter_Total_Length = 0
+```
+
+### 9.3 Command Complete応答の解析
+
+`HCI_Read_Local_Supported_Commands` は `HCI_Command_Complete` event で応答される。
+
+HCI UART上のイベント基本形:
+
+```text
+04 0E Event_Parameter_Total_Length Num_HCI_Command_Packets Command_Opcode_LSB Command_Opcode_MSB Status Supported_Commands...
+```
+
+v1成功時の期待長:
+
+```text
+Event_Parameter_Total_Length = 0x44
+= Num_HCI_Command_Packets(1)
++ Command_Opcode(2)
++ Status(1)
++ Supported_Commands(64)
+```
+
+v2成功時の期待長:
+
+```text
+Event_Parameter_Total_Length = 0xFF
+= Num_HCI_Command_Packets(1)
++ Command_Opcode(2)
++ Status(1)
++ Supported_Commands(251)
+```
+
+解析器では `Command_Opcode` が `0x1002` なら v1応答、`0x1010` なら v2応答として扱う。
+
+### 9.4 Supported_Commands bitの読み方
+
+`Supported_Commands` は octet配列であり、各コマンドに割り当てられた octet / bit を見る。bit値が `1` の場合、そのHCIコマンドと、そのコマンドに必要なfeatureをControllerがサポートしていることを示す。bit値が `0` の場合、未サポートまたは未定義として扱う。
+
+Python実装例:
+
+```python
+def is_supported(supported_commands: bytes, octet: int, bit: int) -> bool:
+    if octet >= len(supported_commands):
+        return False
+    return bool(supported_commands[octet] & (1 << bit))
+```
+
+### 9.5 Supported_Commands応答表の分類方針
+
+この表は `HCI_Read_Local_Supported_Commands` の `Supported_Commands` 応答を解析して、GUI上で「PHY試験に直接使うコマンド」と「それ以外の標準HCIコマンド」を区別するための対応表である。
+
+`Scope` の意味:
+
+| Scope | 意味 |
+|---|---|
+| `PHY_TEST_CORE` | LE Direct Test Mode の通常PHY試験で直接使うコマンド |
+| `PHY_TEST_CS` | Channel Sounding RFPHY test で直接使うコマンド |
+| `CAPABILITY_QUERY` | PHY試験コマンドではないが、本表を取得するために使う問い合わせコマンド |
+| `OTHER_STANDARD` | 標準HCIコマンドだが、本資料のLE RF PHY試験の直接制御対象ではないもの |
+| `RESERVED` | Reserved for future use |
+| `PREVIOUSLY_USED` | Previously used |
+
+parser / GUI では、`PHY_TEST_CORE` と `PHY_TEST_CS` を「PHY試験用」として扱い、それ以外を「その他」として扱う。`CAPABILITY_QUERY` はGUI初期化用の補助コマンドとして常に別扱いにするとよい。
+
+### 9.6 Supported_Commands応答表
+
+`HCI_Read_Local_Supported_Commands [v1]` は octet 0〜63 を返す。`HCI_Read_Local_Supported_Commands [v2]` は octet 0〜250 を返す。Core v6.3 の Section 6.27 で定義済みのコマンドは octet 0〜49 bit 5 までであり、octet 49 bit 6〜7 および octet 50〜250 は parser 実装上 `RESERVED` として扱う。
+
+| Supported Commands octet | bit | Scope | Command / meaning |
+|---:|---:|---|---|
+| 0 | 0 | `OTHER_STANDARD` | `HCI_Inquiry` |
+| 0 | 1 | `OTHER_STANDARD` | `HCI_Inquiry_Cancel` |
+| 0 | 2 | `OTHER_STANDARD` | `HCI_Periodic_Inquiry_Mode` |
+| 0 | 3 | `OTHER_STANDARD` | `HCI_Exit_Periodic_Inquiry_Mode` |
+| 0 | 4 | `OTHER_STANDARD` | `HCI_Create_Connection` |
+| 0 | 5 | `OTHER_STANDARD` | `HCI_Disconnect` |
+| 0 | 6 | `PREVIOUSLY_USED` | Previously used |
+| 0 | 7 | `OTHER_STANDARD` | `HCI_Create_Connection_Cancel` |
+| 1 | 0 | `OTHER_STANDARD` | `HCI_Accept_Connection_Request` |
+| 1 | 1 | `OTHER_STANDARD` | `HCI_Reject_Connection_Request` |
+| 1 | 2 | `OTHER_STANDARD` | `HCI_Link_Key_Request_Reply` |
+| 1 | 3 | `OTHER_STANDARD` | `HCI_Link_Key_Request_Negative_Reply` |
+| 1 | 4 | `OTHER_STANDARD` | `HCI_PIN_Code_Request_Reply` |
+| 1 | 5 | `OTHER_STANDARD` | `HCI_PIN_Code_Request_Negative_Reply` |
+| 1 | 6 | `OTHER_STANDARD` | `HCI_Change_Connection_Packet_Type` |
+| 1 | 7 | `OTHER_STANDARD` | `HCI_Authentication_Requested` |
+| 2 | 0 | `OTHER_STANDARD` | `HCI_Set_Connection_Encryption` |
+| 2 | 1 | `OTHER_STANDARD` | `HCI_Change_Connection_Link_Key` |
+| 2 | 2 | `OTHER_STANDARD` | `HCI_Link_Key_Selection` |
+| 2 | 3 | `OTHER_STANDARD` | `HCI_Remote_Name_Request` |
+| 2 | 4 | `OTHER_STANDARD` | `HCI_Remote_Name_Request_Cancel` |
+| 2 | 5 | `OTHER_STANDARD` | `HCI_Read_Remote_Supported_Features` |
+| 2 | 6 | `OTHER_STANDARD` | `HCI_Read_Remote_Extended_Features` |
+| 2 | 7 | `OTHER_STANDARD` | `HCI_Read_Remote_Version_Information` |
+| 3 | 0 | `OTHER_STANDARD` | `HCI_Read_Clock_Offset` |
+| 3 | 1 | `OTHER_STANDARD` | `HCI_Read_LMP_Handle` |
+| 3 | 2 | `RESERVED` | Reserved for future use |
+| 3 | 3 | `RESERVED` | Reserved for future use |
+| 3 | 4 | `RESERVED` | Reserved for future use |
+| 3 | 5 | `RESERVED` | Reserved for future use |
+| 3 | 6 | `RESERVED` | Reserved for future use |
+| 3 | 7 | `RESERVED` | Reserved for future use |
+| 4 | 0 | `RESERVED` | Reserved for future use |
+| 4 | 1 | `OTHER_STANDARD` | `HCI_Hold_Mode` |
+| 4 | 2 | `OTHER_STANDARD` | `HCI_Sniff_Mode` |
+| 4 | 3 | `OTHER_STANDARD` | `HCI_Exit_Sniff_Mode` |
+| 4 | 4 | `PREVIOUSLY_USED` | Previously used |
+| 4 | 5 | `PREVIOUSLY_USED` | Previously used |
+| 4 | 6 | `OTHER_STANDARD` | `HCI_QoS_Setup` |
+| 4 | 7 | `OTHER_STANDARD` | `HCI_Role_Discovery` |
+| 5 | 0 | `OTHER_STANDARD` | `HCI_Switch_Role` |
+| 5 | 1 | `OTHER_STANDARD` | `HCI_Read_Link_Policy_Settings` |
+| 5 | 2 | `OTHER_STANDARD` | `HCI_Write_Link_Policy_Settings` |
+| 5 | 3 | `OTHER_STANDARD` | `HCI_Read_Default_Link_Policy_Settings` |
+| 5 | 4 | `OTHER_STANDARD` | `HCI_Write_Default_Link_Policy_Settings` |
+| 5 | 5 | `OTHER_STANDARD` | `HCI_Flow_Specification` |
+| 5 | 6 | `OTHER_STANDARD` | `HCI_Set_Event_Mask` |
+| 5 | 7 | `OTHER_STANDARD` | `HCI_Reset` |
+| 6 | 0 | `OTHER_STANDARD` | `HCI_Set_Event_Filter` |
+| 6 | 1 | `OTHER_STANDARD` | `HCI_Flush` |
+| 6 | 2 | `OTHER_STANDARD` | `HCI_Read_PIN_Type` |
+| 6 | 3 | `OTHER_STANDARD` | `HCI_Write_PIN_Type` |
+| 6 | 4 | `PREVIOUSLY_USED` | Previously used |
+| 6 | 5 | `OTHER_STANDARD` | `HCI_Read_Stored_Link_Key` |
+| 6 | 6 | `OTHER_STANDARD` | `HCI_Write_Stored_Link_Key` |
+| 6 | 7 | `OTHER_STANDARD` | `HCI_Delete_Stored_Link_Key` |
+| 7 | 0 | `OTHER_STANDARD` | `HCI_Write_Local_Name` |
+| 7 | 1 | `OTHER_STANDARD` | `HCI_Read_Local_Name` |
+| 7 | 2 | `OTHER_STANDARD` | `HCI_Read_Connection_Accept_Timeout` |
+| 7 | 3 | `OTHER_STANDARD` | `HCI_Write_Connection_Accept_Timeout` |
+| 7 | 4 | `OTHER_STANDARD` | `HCI_Read_Page_Timeout` |
+| 7 | 5 | `OTHER_STANDARD` | `HCI_Write_Page_Timeout` |
+| 7 | 6 | `OTHER_STANDARD` | `HCI_Read_Scan_Enable` |
+| 7 | 7 | `OTHER_STANDARD` | `HCI_Write_Scan_Enable` |
+| 8 | 0 | `OTHER_STANDARD` | `HCI_Read_Page_Scan_Activity` |
+| 8 | 1 | `OTHER_STANDARD` | `HCI_Write_Page_Scan_Activity` |
+| 8 | 2 | `OTHER_STANDARD` | `HCI_Read_Inquiry_Scan_Activity` |
+| 8 | 3 | `OTHER_STANDARD` | `HCI_Write_Inquiry_Scan_Activity` |
+| 8 | 4 | `OTHER_STANDARD` | `HCI_Read_Authentication_Enable` |
+| 8 | 5 | `OTHER_STANDARD` | `HCI_Write_Authentication_Enable` |
+| 8 | 6 | `PREVIOUSLY_USED` | Previously used |
+| 8 | 7 | `PREVIOUSLY_USED` | Previously used |
+| 9 | 0 | `OTHER_STANDARD` | `HCI_Read_Class_Of_Device` |
+| 9 | 1 | `OTHER_STANDARD` | `HCI_Write_Class_Of_Device` |
+| 9 | 2 | `OTHER_STANDARD` | `HCI_Read_Voice_Setting` |
+| 9 | 3 | `OTHER_STANDARD` | `HCI_Write_Voice_Setting` |
+| 9 | 4 | `OTHER_STANDARD` | `HCI_Read_Automatic_Flush_Timeout` |
+| 9 | 5 | `OTHER_STANDARD` | `HCI_Write_Automatic_Flush_Timeout` |
+| 9 | 6 | `OTHER_STANDARD` | `HCI_Read_Num_Broadcast_Retransmissions` |
+| 9 | 7 | `OTHER_STANDARD` | `HCI_Write_Num_Broadcast_Retransmissions` |
+| 10 | 0 | `OTHER_STANDARD` | `HCI_Read_Hold_Mode_Activity` |
+| 10 | 1 | `OTHER_STANDARD` | `HCI_Write_Hold_Mode_Activity` |
+| 10 | 2 | `OTHER_STANDARD` | `HCI_Read_Transmit_Power_Level` |
+| 10 | 3 | `OTHER_STANDARD` | `HCI_Read_Synchronous_Flow_Control_Enable` |
+| 10 | 4 | `OTHER_STANDARD` | `HCI_Write_Synchronous_Flow_Control_Enable` |
+| 10 | 5 | `OTHER_STANDARD` | `HCI_Set_Controller_To_Host_Flow_Control` |
+| 10 | 6 | `OTHER_STANDARD` | `HCI_Host_Buffer_Size` |
+| 10 | 7 | `OTHER_STANDARD` | `HCI_Host_Number_Of_Completed_Packets` |
+| 11 | 0 | `OTHER_STANDARD` | `HCI_Read_Link_Supervision_Timeout` |
+| 11 | 1 | `OTHER_STANDARD` | `HCI_Write_Link_Supervision_Timeout` |
+| 11 | 2 | `OTHER_STANDARD` | `HCI_Read_Number_Of_Supported_IAC` |
+| 11 | 3 | `OTHER_STANDARD` | `HCI_Read_Current_IAC_LAP` |
+| 11 | 4 | `OTHER_STANDARD` | `HCI_Write_Current_IAC_LAP` |
+| 11 | 5 | `PREVIOUSLY_USED` | Previously used |
+| 11 | 6 | `PREVIOUSLY_USED` | Previously used |
+| 11 | 7 | `PREVIOUSLY_USED` | Previously used |
+| 12 | 0 | `PREVIOUSLY_USED` | Previously used |
+| 12 | 1 | `OTHER_STANDARD` | `HCI_Set_AFH_Host_Channel_Classification` |
+| 12 | 2 | `OTHER_STANDARD` | `HCI_LE_CS_Read_Remote_FAE_Table` |
+| 12 | 3 | `OTHER_STANDARD` | `HCI_LE_CS_Write_Cached_Remote_FAE_Table` |
+| 12 | 4 | `OTHER_STANDARD` | `HCI_Read_Inquiry_Scan_Type` |
+| 12 | 5 | `OTHER_STANDARD` | `HCI_Write_Inquiry_Scan_Type` |
+| 12 | 6 | `OTHER_STANDARD` | `HCI_Read_Inquiry_Mode` |
+| 12 | 7 | `OTHER_STANDARD` | `HCI_Write_Inquiry_Mode` |
+| 13 | 0 | `OTHER_STANDARD` | `HCI_Read_Page_Scan_Type` |
+| 13 | 1 | `OTHER_STANDARD` | `HCI_Write_Page_Scan_Type` |
+| 13 | 2 | `OTHER_STANDARD` | `HCI_Read_AFH_Channel_Assessment_Mode` |
+| 13 | 3 | `OTHER_STANDARD` | `HCI_Write_AFH_Channel_Assessment_Mode` |
+| 13 | 4 | `RESERVED` | Reserved for future use |
+| 13 | 5 | `RESERVED` | Reserved for future use |
+| 13 | 6 | `RESERVED` | Reserved for future use |
+| 13 | 7 | `RESERVED` | Reserved for future use |
+| 14 | 0 | `RESERVED` | Reserved for future use |
+| 14 | 1 | `RESERVED` | Reserved for future use |
+| 14 | 2 | `RESERVED` | Reserved for future use |
+| 14 | 3 | `OTHER_STANDARD` | `HCI_Read_Local_Version_Information` |
+| 14 | 4 | `RESERVED` | Reserved for future use |
+| 14 | 5 | `OTHER_STANDARD` | `HCI_Read_Local_Supported_Features` |
+| 14 | 6 | `OTHER_STANDARD` | `HCI_Read_Local_Extended_Features` |
+| 14 | 7 | `OTHER_STANDARD` | `HCI_Read_Buffer_Size` |
+| 15 | 0 | `PREVIOUSLY_USED` | Previously used |
+| 15 | 1 | `OTHER_STANDARD` | `HCI_Read_BD_ADDR` |
+| 15 | 2 | `OTHER_STANDARD` | `HCI_Read_Failed_Contact_Counter` |
+| 15 | 3 | `OTHER_STANDARD` | `HCI_Reset_Failed_Contact_Counter` |
+| 15 | 4 | `OTHER_STANDARD` | `HCI_Read_Link_Quality` |
+| 15 | 5 | `OTHER_STANDARD` | `HCI_Read_RSSI` |
+| 15 | 6 | `OTHER_STANDARD` | `HCI_Read_AFH_Channel_Map` |
+| 15 | 7 | `OTHER_STANDARD` | `HCI_Read_Clock` |
+| 16 | 0 | `OTHER_STANDARD` | `HCI_Read_Loopback_Mode` |
+| 16 | 1 | `OTHER_STANDARD` | `HCI_Write_Loopback_Mode` |
+| 16 | 2 | `OTHER_STANDARD` | `HCI_Enable_Implementation_Under_Test_Mode` |
+| 16 | 3 | `OTHER_STANDARD` | `HCI_Setup_Synchronous_Connection` |
+| 16 | 4 | `OTHER_STANDARD` | `HCI_Accept_Synchronous_Connection_Request` |
+| 16 | 5 | `OTHER_STANDARD` | `HCI_Reject_Synchronous_Connection_Request` |
+| 16 | 6 | `OTHER_STANDARD` | `HCI_LE_CS_Create_Config` |
+| 16 | 7 | `OTHER_STANDARD` | `HCI_LE_CS_Remove_Config` |
+| 17 | 0 | `OTHER_STANDARD` | `HCI_Read_Extended_Inquiry_Response` |
+| 17 | 1 | `OTHER_STANDARD` | `HCI_Write_Extended_Inquiry_Response` |
+| 17 | 2 | `OTHER_STANDARD` | `HCI_Refresh_Encryption_Key` |
+| 17 | 3 | `RESERVED` | Reserved for future use |
+| 17 | 4 | `OTHER_STANDARD` | `HCI_Sniff_Subrating` |
+| 17 | 5 | `OTHER_STANDARD` | `HCI_Read_Simple_Pairing_Mode` |
+| 17 | 6 | `OTHER_STANDARD` | `HCI_Write_Simple_Pairing_Mode` |
+| 17 | 7 | `OTHER_STANDARD` | `HCI_Read_Local_OOB_Data` |
+| 18 | 0 | `OTHER_STANDARD` | `HCI_Read_Inquiry_Response_Transmit_Power_Level` |
+| 18 | 1 | `OTHER_STANDARD` | `HCI_Write_Inquiry_Transmit_Power_Level` |
+| 18 | 2 | `OTHER_STANDARD` | `HCI_Read_Default_Erroneous_Data_Reporting` |
+| 18 | 3 | `OTHER_STANDARD` | `HCI_Write_Default_Erroneous_Data_Reporting` |
+| 18 | 4 | `RESERVED` | Reserved for future use |
+| 18 | 5 | `RESERVED` | Reserved for future use |
+| 18 | 6 | `RESERVED` | Reserved for future use |
+| 18 | 7 | `OTHER_STANDARD` | `HCI_IO_Capability_Request_Reply` |
+| 19 | 0 | `OTHER_STANDARD` | `HCI_User_Confirmation_Request_Reply` |
+| 19 | 1 | `OTHER_STANDARD` | `HCI_User_Confirmation_Request_Negative_Reply` |
+| 19 | 2 | `OTHER_STANDARD` | `HCI_User_Passkey_Request_Reply` |
+| 19 | 3 | `OTHER_STANDARD` | `HCI_User_Passkey_Request_Negative_Reply` |
+| 19 | 4 | `OTHER_STANDARD` | `HCI_Remote_OOB_Data_Request_Reply` |
+| 19 | 5 | `OTHER_STANDARD` | `HCI_Write_Simple_Pairing_Debug_Mode` |
+| 19 | 6 | `OTHER_STANDARD` | `HCI_Enhanced_Flush` |
+| 19 | 7 | `OTHER_STANDARD` | `HCI_Remote_OOB_Data_Request_Negative_Reply` |
+| 20 | 0 | `RESERVED` | Reserved for future use |
+| 20 | 1 | `RESERVED` | Reserved for future use |
+| 20 | 2 | `OTHER_STANDARD` | `HCI_Send_Keypress_Notification` |
+| 20 | 3 | `OTHER_STANDARD` | `HCI_IO_Capability_Request_Negative_Reply` |
+| 20 | 4 | `OTHER_STANDARD` | `HCI_Read_Encryption_Key_Size` |
+| 20 | 5 | `OTHER_STANDARD` | `HCI_LE_CS_Read_Local_Supported_Capabilities [v1]` |
+| 20 | 6 | `OTHER_STANDARD` | `HCI_LE_CS_Read_Remote_Supported_Capabilities` |
+| 20 | 7 | `OTHER_STANDARD` | `HCI_LE_CS_Write_Cached_Remote_Supported_Capabilities [v1]` |
+| 21 | 0 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 1 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 2 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 3 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 4 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 5 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 6 | `PREVIOUSLY_USED` | Previously used |
+| 21 | 7 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 0 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 1 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 2 | `OTHER_STANDARD` | `HCI_Set_Event_Mask_Page_2` |
+| 22 | 3 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 4 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 5 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 6 | `PREVIOUSLY_USED` | Previously used |
+| 22 | 7 | `PREVIOUSLY_USED` | Previously used |
+| 23 | 0 | `OTHER_STANDARD` | `HCI_Read_Flow_Control_Mode` |
+| 23 | 1 | `OTHER_STANDARD` | `HCI_Write_Flow_Control_Mode` |
+| 23 | 2 | `OTHER_STANDARD` | `HCI_Read_Data_Block_Size` |
+| 23 | 3 | `PHY_TEST_CS` | `HCI_LE_CS_Test` |
+| 23 | 4 | `PHY_TEST_CS` | `HCI_LE_CS_Test_End` |
+| 23 | 5 | `PREVIOUSLY_USED` | Previously used |
+| 23 | 6 | `PREVIOUSLY_USED` | Previously used |
+| 23 | 7 | `PREVIOUSLY_USED` | Previously used |
+| 24 | 0 | `OTHER_STANDARD` | `HCI_Read_Enhanced_Transmit_Power_Level` |
+| 24 | 1 | `OTHER_STANDARD` | `HCI_LE_CS_Security_Enable` |
+| 24 | 2 | `PREVIOUSLY_USED` | Previously used |
+| 24 | 3 | `PREVIOUSLY_USED` | Previously used |
+| 24 | 4 | `PREVIOUSLY_USED` | Previously used |
+| 24 | 5 | `OTHER_STANDARD` | `HCI_Read_LE_Host_Support` |
+| 24 | 6 | `OTHER_STANDARD` | `HCI_Write_LE_Host_Support` |
+| 24 | 7 | `OTHER_STANDARD` | `HCI_LE_CS_Set_Default_Settings` |
+| 25 | 0 | `OTHER_STANDARD` | `HCI_LE_Set_Event_Mask [v1]` |
+| 25 | 1 | `OTHER_STANDARD` | `HCI_LE_Read_Buffer_Size [v1]` |
+| 25 | 2 | `OTHER_STANDARD` | `HCI_LE_Read_Local_Supported_Features_Page_0` |
+| 25 | 3 | `RESERVED` | Reserved for future use |
+| 25 | 4 | `OTHER_STANDARD` | `HCI_LE_Set_Random_Address` |
+| 25 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Advertising_Parameters` |
+| 25 | 6 | `OTHER_STANDARD` | `HCI_LE_Read_Advertising_Physical_Channel_Tx_Power` |
+| 25 | 7 | `OTHER_STANDARD` | `HCI_LE_Set_Advertising_Data` |
+| 26 | 0 | `OTHER_STANDARD` | `HCI_LE_Set_Scan_Response_Data` |
+| 26 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Advertising_Enable` |
+| 26 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Scan_Parameters` |
+| 26 | 3 | `OTHER_STANDARD` | `HCI_LE_Set_Scan_Enable` |
+| 26 | 4 | `OTHER_STANDARD` | `HCI_LE_Create_Connection` |
+| 26 | 5 | `OTHER_STANDARD` | `HCI_LE_Create_Connection_Cancel` |
+| 26 | 6 | `OTHER_STANDARD` | `HCI_LE_Read_Filter_Accept_List_Size` |
+| 26 | 7 | `OTHER_STANDARD` | `HCI_LE_Clear_Filter_Accept_List` |
+| 27 | 0 | `OTHER_STANDARD` | `HCI_LE_Add_Device_To_Filter_Accept_List` |
+| 27 | 1 | `OTHER_STANDARD` | `HCI_LE_Remove_Device_From_Filter_Accept_List` |
+| 27 | 2 | `OTHER_STANDARD` | `HCI_LE_Connection_Update` |
+| 27 | 3 | `OTHER_STANDARD` | `HCI_LE_Set_Host_Channel_Classification` |
+| 27 | 4 | `OTHER_STANDARD` | `HCI_LE_Read_Channel_Map` |
+| 27 | 5 | `OTHER_STANDARD` | `HCI_LE_Read_Remote_Features_Page_0` |
+| 27 | 6 | `OTHER_STANDARD` | `HCI_LE_Encrypt` |
+| 27 | 7 | `OTHER_STANDARD` | `HCI_LE_Rand` |
+| 28 | 0 | `OTHER_STANDARD` | `HCI_LE_Enable_Encryption` |
+| 28 | 1 | `OTHER_STANDARD` | `HCI_LE_Long_Term_Key_Request_Reply` |
+| 28 | 2 | `OTHER_STANDARD` | `HCI_LE_Long_Term_Key_Request_Negative_Reply` |
+| 28 | 3 | `OTHER_STANDARD` | `HCI_LE_Read_Supported_States` |
+| 28 | 4 | `PHY_TEST_CORE` | `HCI_LE_Receiver_Test [v1]` |
+| 28 | 5 | `PHY_TEST_CORE` | `HCI_LE_Transmitter_Test [v1]` |
+| 28 | 6 | `PHY_TEST_CORE` | `HCI_LE_Test_End` |
+| 28 | 7 | `OTHER_STANDARD` | `HCI_LE_Enable_Monitoring_Advertisers` |
+| 29 | 0 | `OTHER_STANDARD` | `HCI_LE_CS_Set_Channel_Classification` |
+| 29 | 1 | `OTHER_STANDARD` | `HCI_LE_CS_Set_Procedure_Parameters` |
+| 29 | 2 | `OTHER_STANDARD` | `HCI_LE_CS_Procedure_Enable` |
+| 29 | 3 | `OTHER_STANDARD` | `HCI_Enhanced_Setup_Synchronous_Connection` |
+| 29 | 4 | `OTHER_STANDARD` | `HCI_Enhanced_Accept_Synchronous_Connection_Request` |
+| 29 | 5 | `OTHER_STANDARD` | `HCI_Read_Local_Supported_Codecs [v1]` |
+| 29 | 6 | `OTHER_STANDARD` | `HCI_Set_MWS_Channel_Parameters` |
+| 29 | 7 | `OTHER_STANDARD` | `HCI_Set_External_Frame_Configuration` |
+| 30 | 0 | `OTHER_STANDARD` | `HCI_Set_MWS_Signaling` |
+| 30 | 1 | `OTHER_STANDARD` | `HCI_Set_MWS_Transport_Layer` |
+| 30 | 2 | `OTHER_STANDARD` | `HCI_Set_MWS_Scan_Frequency_Table` |
+| 30 | 3 | `OTHER_STANDARD` | `HCI_Get_MWS_Transport_Layer_Configuration` |
+| 30 | 4 | `OTHER_STANDARD` | `HCI_Set_MWS_PATTERN_Configuration` |
+| 30 | 5 | `OTHER_STANDARD` | `HCI_Set_Triggered_Clock_Capture` |
+| 30 | 6 | `OTHER_STANDARD` | `HCI_Truncated_Page` |
+| 30 | 7 | `OTHER_STANDARD` | `HCI_Truncated_Page_Cancel` |
+| 31 | 0 | `OTHER_STANDARD` | `HCI_Set_Connectionless_Peripheral_Broadcast` |
+| 31 | 1 | `OTHER_STANDARD` | `HCI_Set_Connectionless_Peripheral_Broadcast_Receive` |
+| 31 | 2 | `OTHER_STANDARD` | `HCI_Start_Synchronization_Train` |
+| 31 | 3 | `OTHER_STANDARD` | `HCI_Receive_Synchronization_Train` |
+| 31 | 4 | `OTHER_STANDARD` | `HCI_Set_Reserved_LT_ADDR` |
+| 31 | 5 | `OTHER_STANDARD` | `HCI_Delete_Reserved_LT_ADDR` |
+| 31 | 6 | `OTHER_STANDARD` | `HCI_Set_Connectionless_Peripheral_Broadcast_Data` |
+| 31 | 7 | `OTHER_STANDARD` | `HCI_Read_Synchronization_Train_Parameters` |
+| 32 | 0 | `OTHER_STANDARD` | `HCI_Write_Synchronization_Train_Parameters` |
+| 32 | 1 | `OTHER_STANDARD` | `HCI_Remote_OOB_Extended_Data_Request_Reply` |
+| 32 | 2 | `OTHER_STANDARD` | `HCI_Read_Secure_Connections_Host_Support` |
+| 32 | 3 | `OTHER_STANDARD` | `HCI_Write_Secure_Connections_Host_Support` |
+| 32 | 4 | `OTHER_STANDARD` | `HCI_Read_Authenticated_Payload_Timeout` |
+| 32 | 5 | `OTHER_STANDARD` | `HCI_Write_Authenticated_Payload_Timeout` |
+| 32 | 6 | `OTHER_STANDARD` | `HCI_Read_Local_OOB_Extended_Data` |
+| 32 | 7 | `OTHER_STANDARD` | `HCI_Write_Secure_Connections_Test_Mode` |
+| 33 | 0 | `OTHER_STANDARD` | `HCI_Read_Extended_Page_Timeout` |
+| 33 | 1 | `OTHER_STANDARD` | `HCI_Write_Extended_Page_Timeout` |
+| 33 | 2 | `OTHER_STANDARD` | `HCI_Read_Extended_Inquiry_Length` |
+| 33 | 3 | `OTHER_STANDARD` | `HCI_Write_Extended_Inquiry_Length` |
+| 33 | 4 | `OTHER_STANDARD` | `HCI_LE_Remote_Connection_Parameter_Request_Reply` |
+| 33 | 5 | `OTHER_STANDARD` | `HCI_LE_Remote_Connection_Parameter_Request_Negative_Reply` |
+| 33 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Data_Length` |
+| 33 | 7 | `OTHER_STANDARD` | `HCI_LE_Read_Suggested_Default_Data_Length` |
+| 34 | 0 | `OTHER_STANDARD` | `HCI_LE_Write_Suggested_Default_Data_Length` |
+| 34 | 1 | `OTHER_STANDARD` | `HCI_LE_Read_Local_P-256_Public_Key` |
+| 34 | 2 | `OTHER_STANDARD` | `HCI_LE_Generate_DHKey [v1]` |
+| 34 | 3 | `OTHER_STANDARD` | `HCI_LE_Add_Device_To_Resolving_List` |
+| 34 | 4 | `OTHER_STANDARD` | `HCI_LE_Remove_Device_From_Resolving_List` |
+| 34 | 5 | `OTHER_STANDARD` | `HCI_LE_Clear_Resolving_List` |
+| 34 | 6 | `OTHER_STANDARD` | `HCI_LE_Read_Resolving_List_Size` |
+| 34 | 7 | `OTHER_STANDARD` | `HCI_LE_Read_Peer_Resolvable_Address` |
+| 35 | 0 | `OTHER_STANDARD` | `HCI_LE_Read_Local_Resolvable_Address` |
+| 35 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Address_Resolution_Enable` |
+| 35 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Resolvable_Private_Address_Timeout [v1]` |
+| 35 | 3 | `OTHER_STANDARD` | `HCI_LE_Read_Maximum_Data_Length` |
+| 35 | 4 | `OTHER_STANDARD` | `HCI_LE_Read_PHY` |
+| 35 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Default_PHY` |
+| 35 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_PHY` |
+| 35 | 7 | `PHY_TEST_CORE` | `HCI_LE_Receiver_Test [v2]` |
+| 36 | 0 | `PHY_TEST_CORE` | `HCI_LE_Transmitter_Test [v2]` |
+| 36 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Advertising_Set_Random_Address` |
+| 36 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Advertising_Parameters [v1]` |
+| 36 | 3 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Advertising_Data` |
+| 36 | 4 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Scan_Response_Data` |
+| 36 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Advertising_Enable` |
+| 36 | 6 | `OTHER_STANDARD` | `HCI_LE_Read_Maximum_Advertising_Data_Length` |
+| 36 | 7 | `OTHER_STANDARD` | `HCI_LE_Read_Number_of_Supported_Advertising_Sets` |
+| 37 | 0 | `OTHER_STANDARD` | `HCI_LE_Remove_Advertising_Set` |
+| 37 | 1 | `OTHER_STANDARD` | `HCI_LE_Clear_Advertising_Sets` |
+| 37 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Parameters [v1]` |
+| 37 | 3 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Data` |
+| 37 | 4 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Enable` |
+| 37 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Scan_Parameters` |
+| 37 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Scan_Enable` |
+| 37 | 7 | `OTHER_STANDARD` | `HCI_LE_Extended_Create_Connection [v1]` |
+| 38 | 0 | `OTHER_STANDARD` | `HCI_LE_Periodic_Advertising_Create_Sync` |
+| 38 | 1 | `OTHER_STANDARD` | `HCI_LE_Periodic_Advertising_Create_Sync_Cancel` |
+| 38 | 2 | `OTHER_STANDARD` | `HCI_LE_Periodic_Advertising_Terminate_Sync` |
+| 38 | 3 | `OTHER_STANDARD` | `HCI_LE_Add_Device_To_Periodic_Advertiser_List` |
+| 38 | 4 | `OTHER_STANDARD` | `HCI_LE_Remove_Device_From_Periodic_Advertiser_List` |
+| 38 | 5 | `OTHER_STANDARD` | `HCI_LE_Clear_Periodic_Advertiser_List` |
+| 38 | 6 | `OTHER_STANDARD` | `HCI_LE_Read_Periodic_Advertiser_List_Size` |
+| 38 | 7 | `OTHER_STANDARD` | `HCI_LE_Read_Transmit_Power` |
+| 39 | 0 | `OTHER_STANDARD` | `HCI_LE_Read_RF_Path_Compensation` |
+| 39 | 1 | `OTHER_STANDARD` | `HCI_LE_Write_RF_Path_Compensation` |
+| 39 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Privacy_Mode` |
+| 39 | 3 | `PHY_TEST_CORE` | `HCI_LE_Receiver_Test [v3]` |
+| 39 | 4 | `PHY_TEST_CORE` | `HCI_LE_Transmitter_Test [v3]` |
+| 39 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Connectionless_CTE_Transmit_Parameters` |
+| 39 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Connectionless_CTE_Transmit_Enable` |
+| 39 | 7 | `OTHER_STANDARD` | `HCI_LE_Set_Connectionless_IQ_Sampling_Enable` |
+| 40 | 0 | `OTHER_STANDARD` | `HCI_LE_Set_Connection_CTE_Receive_Parameters` |
+| 40 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Connection_CTE_Transmit_Parameters` |
+| 40 | 2 | `OTHER_STANDARD` | `HCI_LE_Connection_CTE_Request_Enable` |
+| 40 | 3 | `OTHER_STANDARD` | `HCI_LE_Connection_CTE_Response_Enable` |
+| 40 | 4 | `OTHER_STANDARD` | `HCI_LE_Read_Antenna_Information` |
+| 40 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Receive_Enable` |
+| 40 | 6 | `OTHER_STANDARD` | `HCI_LE_Periodic_Advertising_Sync_Transfer` |
+| 40 | 7 | `OTHER_STANDARD` | `HCI_LE_Periodic_Advertising_Set_Info_Transfer` |
+| 41 | 0 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Sync_Transfer_Parameters` |
+| 41 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Default_Periodic_Advertising_Sync_Transfer_Parameters` |
+| 41 | 2 | `OTHER_STANDARD` | `HCI_LE_Generate_DHKey [v2]` |
+| 41 | 3 | `OTHER_STANDARD` | `HCI_Read_Local_Simple_Pairing_Options` |
+| 41 | 4 | `OTHER_STANDARD` | `HCI_LE_Modify_Sleep_Clock_Accuracy` |
+| 41 | 5 | `OTHER_STANDARD` | `HCI_LE_Read_Buffer_Size [v2]` |
+| 41 | 6 | `OTHER_STANDARD` | `HCI_LE_Read_ISO_TX_Sync` |
+| 41 | 7 | `OTHER_STANDARD` | `HCI_LE_Set_CIG_Parameters` |
+| 42 | 0 | `OTHER_STANDARD` | `HCI_LE_Set_CIG_Parameters_Test` |
+| 42 | 1 | `OTHER_STANDARD` | `HCI_LE_Create_CIS` |
+| 42 | 2 | `OTHER_STANDARD` | `HCI_LE_Remove_CIG` |
+| 42 | 3 | `OTHER_STANDARD` | `HCI_LE_Accept_CIS_Request` |
+| 42 | 4 | `OTHER_STANDARD` | `HCI_LE_Reject_CIS_Request` |
+| 42 | 5 | `OTHER_STANDARD` | `HCI_LE_Create_BIG` |
+| 42 | 6 | `OTHER_STANDARD` | `HCI_LE_Create_BIG_Test` |
+| 42 | 7 | `OTHER_STANDARD` | `HCI_LE_Terminate_BIG` |
+| 43 | 0 | `OTHER_STANDARD` | `HCI_LE_BIG_Create_Sync` |
+| 43 | 1 | `OTHER_STANDARD` | `HCI_LE_BIG_Terminate_Sync` |
+| 43 | 2 | `OTHER_STANDARD` | `HCI_LE_Request_Peer_SCA` |
+| 43 | 3 | `OTHER_STANDARD` | `HCI_LE_Setup_ISO_Data_Path` |
+| 43 | 4 | `OTHER_STANDARD` | `HCI_LE_Remove_ISO_Data_Path` |
+| 43 | 5 | `OTHER_STANDARD` | `HCI_LE_ISO_Transmit_Test` |
+| 43 | 6 | `OTHER_STANDARD` | `HCI_LE_ISO_Receive_Test` |
+| 43 | 7 | `OTHER_STANDARD` | `HCI_LE_ISO_Read_Test_Counters` |
+| 44 | 0 | `OTHER_STANDARD` | `HCI_LE_ISO_Test_End` |
+| 44 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Host_Feature [v1]` |
+| 44 | 2 | `OTHER_STANDARD` | `HCI_LE_Read_ISO_Link_Quality` |
+| 44 | 3 | `OTHER_STANDARD` | `HCI_LE_Enhanced_Read_Transmit_Power_Level` |
+| 44 | 4 | `OTHER_STANDARD` | `HCI_LE_Read_Remote_Transmit_Power_Level` |
+| 44 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Path_Loss_Reporting_Parameters` |
+| 44 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Path_Loss_Reporting_Enable` |
+| 44 | 7 | `OTHER_STANDARD` | `HCI_LE_Set_Transmit_Power_Reporting_Enable` |
+| 45 | 0 | `PHY_TEST_CORE` | `HCI_LE_Transmitter_Test [v4]` |
+| 45 | 1 | `OTHER_STANDARD` | `HCI_Set_Ecosystem_Base_Interval` |
+| 45 | 2 | `OTHER_STANDARD` | `HCI_Read_Local_Supported_Codecs [v2]` |
+| 45 | 3 | `OTHER_STANDARD` | `HCI_Read_Local_Supported_Codec_Capabilities` |
+| 45 | 4 | `OTHER_STANDARD` | `HCI_Read_Local_Supported_Controller_Delay` |
+| 45 | 5 | `OTHER_STANDARD` | `HCI_Configure_Data_Path` |
+| 45 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Data_Related_Address_Changes` |
+| 45 | 7 | `OTHER_STANDARD` | `HCI_Set_Min_Encryption_Key_Size` |
+| 46 | 0 | `OTHER_STANDARD` | `HCI_LE_Set_Default_Subrate` |
+| 46 | 1 | `OTHER_STANDARD` | `HCI_LE_Subrate_Request` |
+| 46 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Extended_Advertising_Parameters [v2]` |
+| 46 | 3 | `OTHER_STANDARD` | `HCI_LE_Set_Decision_Data` |
+| 46 | 4 | `OTHER_STANDARD` | `HCI_LE_Set_Decision_Instructions` |
+| 46 | 5 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Subevent_Data` |
+| 46 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Response_Data` |
+| 46 | 7 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Sync_Subevent` |
+| 47 | 0 | `OTHER_STANDARD` | `HCI_LE_Extended_Create_Connection [v2]` |
+| 47 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Periodic_Advertising_Parameters [v2]` |
+| 47 | 2 | `OTHER_STANDARD` | `HCI_LE_Read_All_Local_Supported_Features` |
+| 47 | 3 | `OTHER_STANDARD` | `HCI_LE_Read_All_Remote_Features` |
+| 47 | 4 | `OTHER_STANDARD` | `HCI_LE_Set_Host_Feature [v2]` |
+| 47 | 5 | `OTHER_STANDARD` | `HCI_LE_Add_Device_To_Monitored_Advertisers_List` |
+| 47 | 6 | `OTHER_STANDARD` | `HCI_LE_Remove_Device_From_Monitored_Advertisers_List` |
+| 47 | 7 | `OTHER_STANDARD` | `HCI_LE_Clear_Monitored_Advertisers_List` |
+| 48 | 0 | `OTHER_STANDARD` | `HCI_LE_Read_Monitored_Advertisers_List_Size` |
+| 48 | 1 | `OTHER_STANDARD` | `HCI_LE_Frame_Space_Update` |
+| 48 | 2 | `OTHER_STANDARD` | `HCI_LE_Set_Resolvable_Private_Address_Timeout [v2]` |
+| 48 | 3 | `OTHER_STANDARD` | `HCI_LE_Enable_OTA_UTP_Mode` |
+| 48 | 4 | `OTHER_STANDARD` | `HCI_LE_UTP_Send` |
+| 48 | 5 | `OTHER_STANDARD` | `HCI_LE_Connection_Rate_Request` |
+| 48 | 6 | `OTHER_STANDARD` | `HCI_LE_Set_Default_Rate_Parameters` |
+| 48 | 7 | `OTHER_STANDARD` | `HCI_LE_Read_Minimum_Supported_Connection_Interval` |
+| 49 | 0 | `CAPABILITY_QUERY` | `HCI_Read_Local_Supported_Commands [v2]` |
+| 49 | 1 | `OTHER_STANDARD` | `HCI_LE_Set_Event_Mask [v2]` |
+| 49 | 2 | `OTHER_STANDARD` | `HCI_LE_CS_Read_Local_Supported_Capabilities [v2]` |
+| 49 | 3 | `OTHER_STANDARD` | `HCI_LE_CS_Write_Cached_Remote_Supported_Capabilities [v2]` |
+| 49 | 4 | `OTHER_STANDARD` | `HCI_LE_CS_Set_Security_Requirements` |
+| 49 | 5 | `OTHER_STANDARD` | `HCI_LE_CS_Set_Default_Security_Requirements` |
+| 49 | 6 | `RESERVED` | Reserved for future use |
+| 49 | 7 | `RESERVED` | Reserved for future use |
+
+追加の予約範囲:
+
+| Supported Commands octet | bit | Scope | Command / meaning |
+|---:|---|---|---|
+| 50-250 | 0-7 | `RESERVED` | Reserved for future use |
+
+### 9.7 機械読み取り用CSV
+
+```csv
+octet,bit,scope,command
+0,0,OTHER_STANDARD,HCI_Inquiry
+0,1,OTHER_STANDARD,HCI_Inquiry_Cancel
+0,2,OTHER_STANDARD,HCI_Periodic_Inquiry_Mode
+0,3,OTHER_STANDARD,HCI_Exit_Periodic_Inquiry_Mode
+0,4,OTHER_STANDARD,HCI_Create_Connection
+0,5,OTHER_STANDARD,HCI_Disconnect
+0,6,PREVIOUSLY_USED,Previously used
+0,7,OTHER_STANDARD,HCI_Create_Connection_Cancel
+1,0,OTHER_STANDARD,HCI_Accept_Connection_Request
+1,1,OTHER_STANDARD,HCI_Reject_Connection_Request
+1,2,OTHER_STANDARD,HCI_Link_Key_Request_Reply
+1,3,OTHER_STANDARD,HCI_Link_Key_Request_Negative_Reply
+1,4,OTHER_STANDARD,HCI_PIN_Code_Request_Reply
+1,5,OTHER_STANDARD,HCI_PIN_Code_Request_Negative_Reply
+1,6,OTHER_STANDARD,HCI_Change_Connection_Packet_Type
+1,7,OTHER_STANDARD,HCI_Authentication_Requested
+2,0,OTHER_STANDARD,HCI_Set_Connection_Encryption
+2,1,OTHER_STANDARD,HCI_Change_Connection_Link_Key
+2,2,OTHER_STANDARD,HCI_Link_Key_Selection
+2,3,OTHER_STANDARD,HCI_Remote_Name_Request
+2,4,OTHER_STANDARD,HCI_Remote_Name_Request_Cancel
+2,5,OTHER_STANDARD,HCI_Read_Remote_Supported_Features
+2,6,OTHER_STANDARD,HCI_Read_Remote_Extended_Features
+2,7,OTHER_STANDARD,HCI_Read_Remote_Version_Information
+3,0,OTHER_STANDARD,HCI_Read_Clock_Offset
+3,1,OTHER_STANDARD,HCI_Read_LMP_Handle
+3,2,RESERVED,Reserved for future use
+3,3,RESERVED,Reserved for future use
+3,4,RESERVED,Reserved for future use
+3,5,RESERVED,Reserved for future use
+3,6,RESERVED,Reserved for future use
+3,7,RESERVED,Reserved for future use
+4,0,RESERVED,Reserved for future use
+4,1,OTHER_STANDARD,HCI_Hold_Mode
+4,2,OTHER_STANDARD,HCI_Sniff_Mode
+4,3,OTHER_STANDARD,HCI_Exit_Sniff_Mode
+4,4,PREVIOUSLY_USED,Previously used
+4,5,PREVIOUSLY_USED,Previously used
+4,6,OTHER_STANDARD,HCI_QoS_Setup
+4,7,OTHER_STANDARD,HCI_Role_Discovery
+5,0,OTHER_STANDARD,HCI_Switch_Role
+5,1,OTHER_STANDARD,HCI_Read_Link_Policy_Settings
+5,2,OTHER_STANDARD,HCI_Write_Link_Policy_Settings
+5,3,OTHER_STANDARD,HCI_Read_Default_Link_Policy_Settings
+5,4,OTHER_STANDARD,HCI_Write_Default_Link_Policy_Settings
+5,5,OTHER_STANDARD,HCI_Flow_Specification
+5,6,OTHER_STANDARD,HCI_Set_Event_Mask
+5,7,OTHER_STANDARD,HCI_Reset
+6,0,OTHER_STANDARD,HCI_Set_Event_Filter
+6,1,OTHER_STANDARD,HCI_Flush
+6,2,OTHER_STANDARD,HCI_Read_PIN_Type
+6,3,OTHER_STANDARD,HCI_Write_PIN_Type
+6,4,PREVIOUSLY_USED,Previously used
+6,5,OTHER_STANDARD,HCI_Read_Stored_Link_Key
+6,6,OTHER_STANDARD,HCI_Write_Stored_Link_Key
+6,7,OTHER_STANDARD,HCI_Delete_Stored_Link_Key
+7,0,OTHER_STANDARD,HCI_Write_Local_Name
+7,1,OTHER_STANDARD,HCI_Read_Local_Name
+7,2,OTHER_STANDARD,HCI_Read_Connection_Accept_Timeout
+7,3,OTHER_STANDARD,HCI_Write_Connection_Accept_Timeout
+7,4,OTHER_STANDARD,HCI_Read_Page_Timeout
+7,5,OTHER_STANDARD,HCI_Write_Page_Timeout
+7,6,OTHER_STANDARD,HCI_Read_Scan_Enable
+7,7,OTHER_STANDARD,HCI_Write_Scan_Enable
+8,0,OTHER_STANDARD,HCI_Read_Page_Scan_Activity
+8,1,OTHER_STANDARD,HCI_Write_Page_Scan_Activity
+8,2,OTHER_STANDARD,HCI_Read_Inquiry_Scan_Activity
+8,3,OTHER_STANDARD,HCI_Write_Inquiry_Scan_Activity
+8,4,OTHER_STANDARD,HCI_Read_Authentication_Enable
+8,5,OTHER_STANDARD,HCI_Write_Authentication_Enable
+8,6,PREVIOUSLY_USED,Previously used
+8,7,PREVIOUSLY_USED,Previously used
+9,0,OTHER_STANDARD,HCI_Read_Class_Of_Device
+9,1,OTHER_STANDARD,HCI_Write_Class_Of_Device
+9,2,OTHER_STANDARD,HCI_Read_Voice_Setting
+9,3,OTHER_STANDARD,HCI_Write_Voice_Setting
+9,4,OTHER_STANDARD,HCI_Read_Automatic_Flush_Timeout
+9,5,OTHER_STANDARD,HCI_Write_Automatic_Flush_Timeout
+9,6,OTHER_STANDARD,HCI_Read_Num_Broadcast_Retransmissions
+9,7,OTHER_STANDARD,HCI_Write_Num_Broadcast_Retransmissions
+10,0,OTHER_STANDARD,HCI_Read_Hold_Mode_Activity
+10,1,OTHER_STANDARD,HCI_Write_Hold_Mode_Activity
+10,2,OTHER_STANDARD,HCI_Read_Transmit_Power_Level
+10,3,OTHER_STANDARD,HCI_Read_Synchronous_Flow_Control_Enable
+10,4,OTHER_STANDARD,HCI_Write_Synchronous_Flow_Control_Enable
+10,5,OTHER_STANDARD,HCI_Set_Controller_To_Host_Flow_Control
+10,6,OTHER_STANDARD,HCI_Host_Buffer_Size
+10,7,OTHER_STANDARD,HCI_Host_Number_Of_Completed_Packets
+11,0,OTHER_STANDARD,HCI_Read_Link_Supervision_Timeout
+11,1,OTHER_STANDARD,HCI_Write_Link_Supervision_Timeout
+11,2,OTHER_STANDARD,HCI_Read_Number_Of_Supported_IAC
+11,3,OTHER_STANDARD,HCI_Read_Current_IAC_LAP
+11,4,OTHER_STANDARD,HCI_Write_Current_IAC_LAP
+11,5,PREVIOUSLY_USED,Previously used
+11,6,PREVIOUSLY_USED,Previously used
+11,7,PREVIOUSLY_USED,Previously used
+12,0,PREVIOUSLY_USED,Previously used
+12,1,OTHER_STANDARD,HCI_Set_AFH_Host_Channel_Classification
+12,2,OTHER_STANDARD,HCI_LE_CS_Read_Remote_FAE_Table
+12,3,OTHER_STANDARD,HCI_LE_CS_Write_Cached_Remote_FAE_Table
+12,4,OTHER_STANDARD,HCI_Read_Inquiry_Scan_Type
+12,5,OTHER_STANDARD,HCI_Write_Inquiry_Scan_Type
+12,6,OTHER_STANDARD,HCI_Read_Inquiry_Mode
+12,7,OTHER_STANDARD,HCI_Write_Inquiry_Mode
+13,0,OTHER_STANDARD,HCI_Read_Page_Scan_Type
+13,1,OTHER_STANDARD,HCI_Write_Page_Scan_Type
+13,2,OTHER_STANDARD,HCI_Read_AFH_Channel_Assessment_Mode
+13,3,OTHER_STANDARD,HCI_Write_AFH_Channel_Assessment_Mode
+13,4,RESERVED,Reserved for future use
+13,5,RESERVED,Reserved for future use
+13,6,RESERVED,Reserved for future use
+13,7,RESERVED,Reserved for future use
+14,0,RESERVED,Reserved for future use
+14,1,RESERVED,Reserved for future use
+14,2,RESERVED,Reserved for future use
+14,3,OTHER_STANDARD,HCI_Read_Local_Version_Information
+14,4,RESERVED,Reserved for future use
+14,5,OTHER_STANDARD,HCI_Read_Local_Supported_Features
+14,6,OTHER_STANDARD,HCI_Read_Local_Extended_Features
+14,7,OTHER_STANDARD,HCI_Read_Buffer_Size
+15,0,PREVIOUSLY_USED,Previously used
+15,1,OTHER_STANDARD,HCI_Read_BD_ADDR
+15,2,OTHER_STANDARD,HCI_Read_Failed_Contact_Counter
+15,3,OTHER_STANDARD,HCI_Reset_Failed_Contact_Counter
+15,4,OTHER_STANDARD,HCI_Read_Link_Quality
+15,5,OTHER_STANDARD,HCI_Read_RSSI
+15,6,OTHER_STANDARD,HCI_Read_AFH_Channel_Map
+15,7,OTHER_STANDARD,HCI_Read_Clock
+16,0,OTHER_STANDARD,HCI_Read_Loopback_Mode
+16,1,OTHER_STANDARD,HCI_Write_Loopback_Mode
+16,2,OTHER_STANDARD,HCI_Enable_Implementation_Under_Test_Mode
+16,3,OTHER_STANDARD,HCI_Setup_Synchronous_Connection
+16,4,OTHER_STANDARD,HCI_Accept_Synchronous_Connection_Request
+16,5,OTHER_STANDARD,HCI_Reject_Synchronous_Connection_Request
+16,6,OTHER_STANDARD,HCI_LE_CS_Create_Config
+16,7,OTHER_STANDARD,HCI_LE_CS_Remove_Config
+17,0,OTHER_STANDARD,HCI_Read_Extended_Inquiry_Response
+17,1,OTHER_STANDARD,HCI_Write_Extended_Inquiry_Response
+17,2,OTHER_STANDARD,HCI_Refresh_Encryption_Key
+17,3,RESERVED,Reserved for future use
+17,4,OTHER_STANDARD,HCI_Sniff_Subrating
+17,5,OTHER_STANDARD,HCI_Read_Simple_Pairing_Mode
+17,6,OTHER_STANDARD,HCI_Write_Simple_Pairing_Mode
+17,7,OTHER_STANDARD,HCI_Read_Local_OOB_Data
+18,0,OTHER_STANDARD,HCI_Read_Inquiry_Response_Transmit_Power_Level
+18,1,OTHER_STANDARD,HCI_Write_Inquiry_Transmit_Power_Level
+18,2,OTHER_STANDARD,HCI_Read_Default_Erroneous_Data_Reporting
+18,3,OTHER_STANDARD,HCI_Write_Default_Erroneous_Data_Reporting
+18,4,RESERVED,Reserved for future use
+18,5,RESERVED,Reserved for future use
+18,6,RESERVED,Reserved for future use
+18,7,OTHER_STANDARD,HCI_IO_Capability_Request_Reply
+19,0,OTHER_STANDARD,HCI_User_Confirmation_Request_Reply
+19,1,OTHER_STANDARD,HCI_User_Confirmation_Request_Negative_Reply
+19,2,OTHER_STANDARD,HCI_User_Passkey_Request_Reply
+19,3,OTHER_STANDARD,HCI_User_Passkey_Request_Negative_Reply
+19,4,OTHER_STANDARD,HCI_Remote_OOB_Data_Request_Reply
+19,5,OTHER_STANDARD,HCI_Write_Simple_Pairing_Debug_Mode
+19,6,OTHER_STANDARD,HCI_Enhanced_Flush
+19,7,OTHER_STANDARD,HCI_Remote_OOB_Data_Request_Negative_Reply
+20,0,RESERVED,Reserved for future use
+20,1,RESERVED,Reserved for future use
+20,2,OTHER_STANDARD,HCI_Send_Keypress_Notification
+20,3,OTHER_STANDARD,HCI_IO_Capability_Request_Negative_Reply
+20,4,OTHER_STANDARD,HCI_Read_Encryption_Key_Size
+20,5,OTHER_STANDARD,HCI_LE_CS_Read_Local_Supported_Capabilities [v1]
+20,6,OTHER_STANDARD,HCI_LE_CS_Read_Remote_Supported_Capabilities
+20,7,OTHER_STANDARD,HCI_LE_CS_Write_Cached_Remote_Supported_Capabilities [v1]
+21,0,PREVIOUSLY_USED,Previously used
+21,1,PREVIOUSLY_USED,Previously used
+21,2,PREVIOUSLY_USED,Previously used
+21,3,PREVIOUSLY_USED,Previously used
+21,4,PREVIOUSLY_USED,Previously used
+21,5,PREVIOUSLY_USED,Previously used
+21,6,PREVIOUSLY_USED,Previously used
+21,7,PREVIOUSLY_USED,Previously used
+22,0,PREVIOUSLY_USED,Previously used
+22,1,PREVIOUSLY_USED,Previously used
+22,2,OTHER_STANDARD,HCI_Set_Event_Mask_Page_2
+22,3,PREVIOUSLY_USED,Previously used
+22,4,PREVIOUSLY_USED,Previously used
+22,5,PREVIOUSLY_USED,Previously used
+22,6,PREVIOUSLY_USED,Previously used
+22,7,PREVIOUSLY_USED,Previously used
+23,0,OTHER_STANDARD,HCI_Read_Flow_Control_Mode
+23,1,OTHER_STANDARD,HCI_Write_Flow_Control_Mode
+23,2,OTHER_STANDARD,HCI_Read_Data_Block_Size
+23,3,PHY_TEST_CS,HCI_LE_CS_Test
+23,4,PHY_TEST_CS,HCI_LE_CS_Test_End
+23,5,PREVIOUSLY_USED,Previously used
+23,6,PREVIOUSLY_USED,Previously used
+23,7,PREVIOUSLY_USED,Previously used
+24,0,OTHER_STANDARD,HCI_Read_Enhanced_Transmit_Power_Level
+24,1,OTHER_STANDARD,HCI_LE_CS_Security_Enable
+24,2,PREVIOUSLY_USED,Previously used
+24,3,PREVIOUSLY_USED,Previously used
+24,4,PREVIOUSLY_USED,Previously used
+24,5,OTHER_STANDARD,HCI_Read_LE_Host_Support
+24,6,OTHER_STANDARD,HCI_Write_LE_Host_Support
+24,7,OTHER_STANDARD,HCI_LE_CS_Set_Default_Settings
+25,0,OTHER_STANDARD,HCI_LE_Set_Event_Mask [v1]
+25,1,OTHER_STANDARD,HCI_LE_Read_Buffer_Size [v1]
+25,2,OTHER_STANDARD,HCI_LE_Read_Local_Supported_Features_Page_0
+25,3,RESERVED,Reserved for future use
+25,4,OTHER_STANDARD,HCI_LE_Set_Random_Address
+25,5,OTHER_STANDARD,HCI_LE_Set_Advertising_Parameters
+25,6,OTHER_STANDARD,HCI_LE_Read_Advertising_Physical_Channel_Tx_Power
+25,7,OTHER_STANDARD,HCI_LE_Set_Advertising_Data
+26,0,OTHER_STANDARD,HCI_LE_Set_Scan_Response_Data
+26,1,OTHER_STANDARD,HCI_LE_Set_Advertising_Enable
+26,2,OTHER_STANDARD,HCI_LE_Set_Scan_Parameters
+26,3,OTHER_STANDARD,HCI_LE_Set_Scan_Enable
+26,4,OTHER_STANDARD,HCI_LE_Create_Connection
+26,5,OTHER_STANDARD,HCI_LE_Create_Connection_Cancel
+26,6,OTHER_STANDARD,HCI_LE_Read_Filter_Accept_List_Size
+26,7,OTHER_STANDARD,HCI_LE_Clear_Filter_Accept_List
+27,0,OTHER_STANDARD,HCI_LE_Add_Device_To_Filter_Accept_List
+27,1,OTHER_STANDARD,HCI_LE_Remove_Device_From_Filter_Accept_List
+27,2,OTHER_STANDARD,HCI_LE_Connection_Update
+27,3,OTHER_STANDARD,HCI_LE_Set_Host_Channel_Classification
+27,4,OTHER_STANDARD,HCI_LE_Read_Channel_Map
+27,5,OTHER_STANDARD,HCI_LE_Read_Remote_Features_Page_0
+27,6,OTHER_STANDARD,HCI_LE_Encrypt
+27,7,OTHER_STANDARD,HCI_LE_Rand
+28,0,OTHER_STANDARD,HCI_LE_Enable_Encryption
+28,1,OTHER_STANDARD,HCI_LE_Long_Term_Key_Request_Reply
+28,2,OTHER_STANDARD,HCI_LE_Long_Term_Key_Request_Negative_Reply
+28,3,OTHER_STANDARD,HCI_LE_Read_Supported_States
+28,4,PHY_TEST_CORE,HCI_LE_Receiver_Test [v1]
+28,5,PHY_TEST_CORE,HCI_LE_Transmitter_Test [v1]
+28,6,PHY_TEST_CORE,HCI_LE_Test_End
+28,7,OTHER_STANDARD,HCI_LE_Enable_Monitoring_Advertisers
+29,0,OTHER_STANDARD,HCI_LE_CS_Set_Channel_Classification
+29,1,OTHER_STANDARD,HCI_LE_CS_Set_Procedure_Parameters
+29,2,OTHER_STANDARD,HCI_LE_CS_Procedure_Enable
+29,3,OTHER_STANDARD,HCI_Enhanced_Setup_Synchronous_Connection
+29,4,OTHER_STANDARD,HCI_Enhanced_Accept_Synchronous_Connection_Request
+29,5,OTHER_STANDARD,HCI_Read_Local_Supported_Codecs [v1]
+29,6,OTHER_STANDARD,HCI_Set_MWS_Channel_Parameters
+29,7,OTHER_STANDARD,HCI_Set_External_Frame_Configuration
+30,0,OTHER_STANDARD,HCI_Set_MWS_Signaling
+30,1,OTHER_STANDARD,HCI_Set_MWS_Transport_Layer
+30,2,OTHER_STANDARD,HCI_Set_MWS_Scan_Frequency_Table
+30,3,OTHER_STANDARD,HCI_Get_MWS_Transport_Layer_Configuration
+30,4,OTHER_STANDARD,HCI_Set_MWS_PATTERN_Configuration
+30,5,OTHER_STANDARD,HCI_Set_Triggered_Clock_Capture
+30,6,OTHER_STANDARD,HCI_Truncated_Page
+30,7,OTHER_STANDARD,HCI_Truncated_Page_Cancel
+31,0,OTHER_STANDARD,HCI_Set_Connectionless_Peripheral_Broadcast
+31,1,OTHER_STANDARD,HCI_Set_Connectionless_Peripheral_Broadcast_Receive
+31,2,OTHER_STANDARD,HCI_Start_Synchronization_Train
+31,3,OTHER_STANDARD,HCI_Receive_Synchronization_Train
+31,4,OTHER_STANDARD,HCI_Set_Reserved_LT_ADDR
+31,5,OTHER_STANDARD,HCI_Delete_Reserved_LT_ADDR
+31,6,OTHER_STANDARD,HCI_Set_Connectionless_Peripheral_Broadcast_Data
+31,7,OTHER_STANDARD,HCI_Read_Synchronization_Train_Parameters
+32,0,OTHER_STANDARD,HCI_Write_Synchronization_Train_Parameters
+32,1,OTHER_STANDARD,HCI_Remote_OOB_Extended_Data_Request_Reply
+32,2,OTHER_STANDARD,HCI_Read_Secure_Connections_Host_Support
+32,3,OTHER_STANDARD,HCI_Write_Secure_Connections_Host_Support
+32,4,OTHER_STANDARD,HCI_Read_Authenticated_Payload_Timeout
+32,5,OTHER_STANDARD,HCI_Write_Authenticated_Payload_Timeout
+32,6,OTHER_STANDARD,HCI_Read_Local_OOB_Extended_Data
+32,7,OTHER_STANDARD,HCI_Write_Secure_Connections_Test_Mode
+33,0,OTHER_STANDARD,HCI_Read_Extended_Page_Timeout
+33,1,OTHER_STANDARD,HCI_Write_Extended_Page_Timeout
+33,2,OTHER_STANDARD,HCI_Read_Extended_Inquiry_Length
+33,3,OTHER_STANDARD,HCI_Write_Extended_Inquiry_Length
+33,4,OTHER_STANDARD,HCI_LE_Remote_Connection_Parameter_Request_Reply
+33,5,OTHER_STANDARD,HCI_LE_Remote_Connection_Parameter_Request_Negative_Reply
+33,6,OTHER_STANDARD,HCI_LE_Set_Data_Length
+33,7,OTHER_STANDARD,HCI_LE_Read_Suggested_Default_Data_Length
+34,0,OTHER_STANDARD,HCI_LE_Write_Suggested_Default_Data_Length
+34,1,OTHER_STANDARD,HCI_LE_Read_Local_P-256_Public_Key
+34,2,OTHER_STANDARD,HCI_LE_Generate_DHKey [v1]
+34,3,OTHER_STANDARD,HCI_LE_Add_Device_To_Resolving_List
+34,4,OTHER_STANDARD,HCI_LE_Remove_Device_From_Resolving_List
+34,5,OTHER_STANDARD,HCI_LE_Clear_Resolving_List
+34,6,OTHER_STANDARD,HCI_LE_Read_Resolving_List_Size
+34,7,OTHER_STANDARD,HCI_LE_Read_Peer_Resolvable_Address
+35,0,OTHER_STANDARD,HCI_LE_Read_Local_Resolvable_Address
+35,1,OTHER_STANDARD,HCI_LE_Set_Address_Resolution_Enable
+35,2,OTHER_STANDARD,HCI_LE_Set_Resolvable_Private_Address_Timeout [v1]
+35,3,OTHER_STANDARD,HCI_LE_Read_Maximum_Data_Length
+35,4,OTHER_STANDARD,HCI_LE_Read_PHY
+35,5,OTHER_STANDARD,HCI_LE_Set_Default_PHY
+35,6,OTHER_STANDARD,HCI_LE_Set_PHY
+35,7,PHY_TEST_CORE,HCI_LE_Receiver_Test [v2]
+36,0,PHY_TEST_CORE,HCI_LE_Transmitter_Test [v2]
+36,1,OTHER_STANDARD,HCI_LE_Set_Advertising_Set_Random_Address
+36,2,OTHER_STANDARD,HCI_LE_Set_Extended_Advertising_Parameters [v1]
+36,3,OTHER_STANDARD,HCI_LE_Set_Extended_Advertising_Data
+36,4,OTHER_STANDARD,HCI_LE_Set_Extended_Scan_Response_Data
+36,5,OTHER_STANDARD,HCI_LE_Set_Extended_Advertising_Enable
+36,6,OTHER_STANDARD,HCI_LE_Read_Maximum_Advertising_Data_Length
+36,7,OTHER_STANDARD,HCI_LE_Read_Number_of_Supported_Advertising_Sets
+37,0,OTHER_STANDARD,HCI_LE_Remove_Advertising_Set
+37,1,OTHER_STANDARD,HCI_LE_Clear_Advertising_Sets
+37,2,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Parameters [v1]
+37,3,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Data
+37,4,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Enable
+37,5,OTHER_STANDARD,HCI_LE_Set_Extended_Scan_Parameters
+37,6,OTHER_STANDARD,HCI_LE_Set_Extended_Scan_Enable
+37,7,OTHER_STANDARD,HCI_LE_Extended_Create_Connection [v1]
+38,0,OTHER_STANDARD,HCI_LE_Periodic_Advertising_Create_Sync
+38,1,OTHER_STANDARD,HCI_LE_Periodic_Advertising_Create_Sync_Cancel
+38,2,OTHER_STANDARD,HCI_LE_Periodic_Advertising_Terminate_Sync
+38,3,OTHER_STANDARD,HCI_LE_Add_Device_To_Periodic_Advertiser_List
+38,4,OTHER_STANDARD,HCI_LE_Remove_Device_From_Periodic_Advertiser_List
+38,5,OTHER_STANDARD,HCI_LE_Clear_Periodic_Advertiser_List
+38,6,OTHER_STANDARD,HCI_LE_Read_Periodic_Advertiser_List_Size
+38,7,OTHER_STANDARD,HCI_LE_Read_Transmit_Power
+39,0,OTHER_STANDARD,HCI_LE_Read_RF_Path_Compensation
+39,1,OTHER_STANDARD,HCI_LE_Write_RF_Path_Compensation
+39,2,OTHER_STANDARD,HCI_LE_Set_Privacy_Mode
+39,3,PHY_TEST_CORE,HCI_LE_Receiver_Test [v3]
+39,4,PHY_TEST_CORE,HCI_LE_Transmitter_Test [v3]
+39,5,OTHER_STANDARD,HCI_LE_Set_Connectionless_CTE_Transmit_Parameters
+39,6,OTHER_STANDARD,HCI_LE_Set_Connectionless_CTE_Transmit_Enable
+39,7,OTHER_STANDARD,HCI_LE_Set_Connectionless_IQ_Sampling_Enable
+40,0,OTHER_STANDARD,HCI_LE_Set_Connection_CTE_Receive_Parameters
+40,1,OTHER_STANDARD,HCI_LE_Set_Connection_CTE_Transmit_Parameters
+40,2,OTHER_STANDARD,HCI_LE_Connection_CTE_Request_Enable
+40,3,OTHER_STANDARD,HCI_LE_Connection_CTE_Response_Enable
+40,4,OTHER_STANDARD,HCI_LE_Read_Antenna_Information
+40,5,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Receive_Enable
+40,6,OTHER_STANDARD,HCI_LE_Periodic_Advertising_Sync_Transfer
+40,7,OTHER_STANDARD,HCI_LE_Periodic_Advertising_Set_Info_Transfer
+41,0,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Sync_Transfer_Parameters
+41,1,OTHER_STANDARD,HCI_LE_Set_Default_Periodic_Advertising_Sync_Transfer_Parameters
+41,2,OTHER_STANDARD,HCI_LE_Generate_DHKey [v2]
+41,3,OTHER_STANDARD,HCI_Read_Local_Simple_Pairing_Options
+41,4,OTHER_STANDARD,HCI_LE_Modify_Sleep_Clock_Accuracy
+41,5,OTHER_STANDARD,HCI_LE_Read_Buffer_Size [v2]
+41,6,OTHER_STANDARD,HCI_LE_Read_ISO_TX_Sync
+41,7,OTHER_STANDARD,HCI_LE_Set_CIG_Parameters
+42,0,OTHER_STANDARD,HCI_LE_Set_CIG_Parameters_Test
+42,1,OTHER_STANDARD,HCI_LE_Create_CIS
+42,2,OTHER_STANDARD,HCI_LE_Remove_CIG
+42,3,OTHER_STANDARD,HCI_LE_Accept_CIS_Request
+42,4,OTHER_STANDARD,HCI_LE_Reject_CIS_Request
+42,5,OTHER_STANDARD,HCI_LE_Create_BIG
+42,6,OTHER_STANDARD,HCI_LE_Create_BIG_Test
+42,7,OTHER_STANDARD,HCI_LE_Terminate_BIG
+43,0,OTHER_STANDARD,HCI_LE_BIG_Create_Sync
+43,1,OTHER_STANDARD,HCI_LE_BIG_Terminate_Sync
+43,2,OTHER_STANDARD,HCI_LE_Request_Peer_SCA
+43,3,OTHER_STANDARD,HCI_LE_Setup_ISO_Data_Path
+43,4,OTHER_STANDARD,HCI_LE_Remove_ISO_Data_Path
+43,5,OTHER_STANDARD,HCI_LE_ISO_Transmit_Test
+43,6,OTHER_STANDARD,HCI_LE_ISO_Receive_Test
+43,7,OTHER_STANDARD,HCI_LE_ISO_Read_Test_Counters
+44,0,OTHER_STANDARD,HCI_LE_ISO_Test_End
+44,1,OTHER_STANDARD,HCI_LE_Set_Host_Feature [v1]
+44,2,OTHER_STANDARD,HCI_LE_Read_ISO_Link_Quality
+44,3,OTHER_STANDARD,HCI_LE_Enhanced_Read_Transmit_Power_Level
+44,4,OTHER_STANDARD,HCI_LE_Read_Remote_Transmit_Power_Level
+44,5,OTHER_STANDARD,HCI_LE_Set_Path_Loss_Reporting_Parameters
+44,6,OTHER_STANDARD,HCI_LE_Set_Path_Loss_Reporting_Enable
+44,7,OTHER_STANDARD,HCI_LE_Set_Transmit_Power_Reporting_Enable
+45,0,PHY_TEST_CORE,HCI_LE_Transmitter_Test [v4]
+45,1,OTHER_STANDARD,HCI_Set_Ecosystem_Base_Interval
+45,2,OTHER_STANDARD,HCI_Read_Local_Supported_Codecs [v2]
+45,3,OTHER_STANDARD,HCI_Read_Local_Supported_Codec_Capabilities
+45,4,OTHER_STANDARD,HCI_Read_Local_Supported_Controller_Delay
+45,5,OTHER_STANDARD,HCI_Configure_Data_Path
+45,6,OTHER_STANDARD,HCI_LE_Set_Data_Related_Address_Changes
+45,7,OTHER_STANDARD,HCI_Set_Min_Encryption_Key_Size
+46,0,OTHER_STANDARD,HCI_LE_Set_Default_Subrate
+46,1,OTHER_STANDARD,HCI_LE_Subrate_Request
+46,2,OTHER_STANDARD,HCI_LE_Set_Extended_Advertising_Parameters [v2]
+46,3,OTHER_STANDARD,HCI_LE_Set_Decision_Data
+46,4,OTHER_STANDARD,HCI_LE_Set_Decision_Instructions
+46,5,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Subevent_Data
+46,6,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Response_Data
+46,7,OTHER_STANDARD,HCI_LE_Set_Periodic_Sync_Subevent
+47,0,OTHER_STANDARD,HCI_LE_Extended_Create_Connection [v2]
+47,1,OTHER_STANDARD,HCI_LE_Set_Periodic_Advertising_Parameters [v2]
+47,2,OTHER_STANDARD,HCI_LE_Read_All_Local_Supported_Features
+47,3,OTHER_STANDARD,HCI_LE_Read_All_Remote_Features
+47,4,OTHER_STANDARD,HCI_LE_Set_Host_Feature [v2]
+47,5,OTHER_STANDARD,HCI_LE_Add_Device_To_Monitored_Advertisers_List
+47,6,OTHER_STANDARD,HCI_LE_Remove_Device_From_Monitored_Advertisers_List
+47,7,OTHER_STANDARD,HCI_LE_Clear_Monitored_Advertisers_List
+48,0,OTHER_STANDARD,HCI_LE_Read_Monitored_Advertisers_List_Size
+48,1,OTHER_STANDARD,HCI_LE_Frame_Space_Update
+48,2,OTHER_STANDARD,HCI_LE_Set_Resolvable_Private_Address_Timeout [v2]
+48,3,OTHER_STANDARD,HCI_LE_Enable_OTA_UTP_Mode
+48,4,OTHER_STANDARD,HCI_LE_UTP_Send
+48,5,OTHER_STANDARD,HCI_LE_Connection_Rate_Request
+48,6,OTHER_STANDARD,HCI_LE_Set_Default_Rate_Parameters
+48,7,OTHER_STANDARD,HCI_LE_Read_Minimum_Supported_Connection_Interval
+49,0,CAPABILITY_QUERY,HCI_Read_Local_Supported_Commands [v2]
+49,1,OTHER_STANDARD,HCI_LE_Set_Event_Mask [v2]
+49,2,OTHER_STANDARD,HCI_LE_CS_Read_Local_Supported_Capabilities [v2]
+49,3,OTHER_STANDARD,HCI_LE_CS_Write_Cached_Remote_Supported_Capabilities [v2]
+49,4,OTHER_STANDARD,HCI_LE_CS_Set_Security_Requirements
+49,5,OTHER_STANDARD,HCI_LE_CS_Set_Default_Security_Requirements
+49,6,RESERVED,Reserved for future use
+49,7,RESERVED,Reserved for future use
+50-250,0-7,RESERVED,Reserved for future use
+```
+
+### 9.8 GUIでの判定例
+
+```python
+PHY_TEST_SCOPES = {"PHY_TEST_CORE", "PHY_TEST_CS"}
+
+SUPPORTED_COMMANDS_MAP = {
+    # Full mapping is represented by the CSV table above.
+    # Example:
+    (28, 4): {"scope": "PHY_TEST_CORE", "command": "HCI_LE_Receiver_Test [v1]"},
+    (28, 5): {"scope": "PHY_TEST_CORE", "command": "HCI_LE_Transmitter_Test [v1]"},
+    (28, 6): {"scope": "PHY_TEST_CORE", "command": "HCI_LE_Test_End"},
+    (23, 3): {"scope": "PHY_TEST_CS", "command": "HCI_LE_CS_Test"},
+    (23, 4): {"scope": "PHY_TEST_CS", "command": "HCI_LE_CS_Test_End"},
+    (49, 0): {"scope": "CAPABILITY_QUERY", "command": "HCI_Read_Local_Supported_Commands [v2]"},
+}
+
+def is_supported(supported_commands: bytes, octet: int, bit: int) -> bool:
+    if octet >= len(supported_commands):
+        return False
+    return bool(supported_commands[octet] & (1 << bit))
+
+def classify_supported_command(supported_commands: bytes, octet: int, bit: int, mapping: dict) -> dict:
+    entry = mapping.get((octet, bit), {
+        "scope": "RESERVED" if octet >= 50 else "OTHER_STANDARD",
+        "command": "Unknown or reserved"
+    })
+    return {
+        "octet": octet,
+        "bit": bit,
+        "supported": is_supported(supported_commands, octet, bit),
+        "scope": entry["scope"],
+        "is_phy_test_command": entry["scope"] in PHY_TEST_SCOPES,
+        "command": entry["command"],
+    }
+```
+
+### 9.9 推奨シーケンス
+
+```text
+1. HCI_Read_Local_Supported_Commands [v1] を送る
+2. Status が Success であることを確認する
+3. Supported_Commands octet 49 bit 0 が 1 なら、HCI_Read_Local_Supported_Commands [v2] を送る
+4. v2応答が取れた場合は、251 octets版のbitmaskを以後の真値として使う
+5. GUIや送信ツールでは、bitmaskに基づき未対応コマンドをdisableまたは警告表示し、Scopeに基づきコマンドの表示分類を分ける
+   - PHY_TEST_CORE / PHY_TEST_CS: PHY試験用コマンドとして表示
+   - CAPABILITY_QUERY: capability queryとして表示
+   - OTHER_STANDARD: その他の標準HCIコマンドとして表示
+   - RESERVED / PREVIOUSLY_USED: 通常は非表示または参考表示
+```
+
+### 9.10 implementation specific な事項
+
+`HCI_Read_Local_Supported_Commands` は標準HCIコマンドの対応状況を示す。Vendor Specific HCI command の個別対応、ベンダー独自test mode entry、未公開HDT暫定opcodeなどは、このbitmaskからは判別できない。
 
 ---
 
@@ -1017,7 +2013,7 @@ HCI_LE_Transmitter_Test [v4] -> OCF 0x007B -> Opcode 0x207B -> 01 7B 20 ...
 | 種類 | 例 | 扱い |
 |---|---|---|
 | Controller初期化 | `HCI_Reset`, `HCI_Read_Local_Version_Information` | テスター/ドライバ依存 |
-| Capability確認 | `HCI_Read_Local_Supported_Commands`, `HCI_LE_Read_Local_Supported_Features_Page_0` | 補助コマンド |
+| Capability確認 | `HCI_Read_Local_Supported_Commands`, `HCI_LE_Read_Local_Supported_Features_Page_0` | `HCI_Read_Local_Supported_Commands` は本資料で標準補助コマンドとして定義。その他は必要に応じて追加 |
 | 通常接続PHY制御 | `HCI_LE_Set_PHY`, `HCI_LE_Read_PHY` | 接続中PHY制御。Direct Test Mode commandではない |
 | Vendor-specific | OGF `0x3F`, Event `0xFF` | vendor実装依存 |
 | 2-wire UART DTM | `LE_Test_Setup`, `LE_Receiver_Test`, `LE_Transmitter_Test`, `LE_Test_End` | HCIではなく2-wire UART Test Interface |
@@ -1040,3 +2036,5 @@ HCI_LE_Transmitter_Test [v4] -> OCF 0x007B -> Opcode 0x207B -> 01 7B 20 ...
 | `01 1F 20 00` | `0x201F` | `HCI_LE_Test_End` | `0` |
 | `01 95 20` | `0x2095` | `HCI_LE_CS_Test` | `30 + Override_Parameters_Length` |
 | `01 96 20 00` | `0x2096` | `HCI_LE_CS_Test_End` | `0` |
+| `01 02 10 00` | `0x1002` | `HCI_Read_Local_Supported_Commands [v1]` | `0` |
+| `01 10 10 00` | `0x1010` | `HCI_Read_Local_Supported_Commands [v2]` | `0` |
