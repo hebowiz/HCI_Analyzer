@@ -54,6 +54,7 @@ class HciCommandConsoleApplication:
         self._window.set_close_handler(self._close)
         self._selected_definition: ConsoleCommandDefinition | None = None
         self._parameter_value_cache: dict[int, dict[str, Any]] = {}
+        self._shared_parameter_values: dict[str, dict[str, Any]] = {}
         self._latest_encoded: EncodedCommand | None = None
         self._command_support: dict[int, bool] = {}
 
@@ -61,6 +62,10 @@ class HciCommandConsoleApplication:
         """Start the Command Console event loop."""
         self._refresh_ports(self._saved_settings.port)
         self._window.set_baud_rate(self._saved_settings.baud_rate)
+        self._window.set_window_size(
+            self._saved_settings.window_width,
+            self._saved_settings.window_height,
+        )
         self._window.set_command_definitions(CONSOLE_COMMAND_DEFINITIONS)
         self._window.after(50, self._drain_transport_events)
         self._window.run()
@@ -74,9 +79,7 @@ class HciCommandConsoleApplication:
     def _select_command(self, opcode: int) -> None:
         self._cache_current_values()
         definition = COMMAND_DEFINITIONS_BY_OPCODE[opcode]
-        values = self._parameter_value_cache.get(
-            opcode, self._defaults(definition)
-        )
+        values = self._values_for_definition(definition)
         self._selected_definition = definition
         self._window.show_parameter_form(definition)
         self._window.set_parameter_values(values)
@@ -85,7 +88,7 @@ class HciCommandConsoleApplication:
         definition = self._selected_definition
         if definition is None:
             return
-        self._parameter_value_cache[definition.opcode] = dict(values)
+        self._remember_parameter_values(definition, values)
         validation = self._validator.validate(definition, values)
         issues: dict[str, str] = {}
         for issue in validation.issues:
@@ -149,15 +152,57 @@ class HciCommandConsoleApplication:
         if definition is None:
             return
         defaults = self._defaults(definition)
-        self._parameter_value_cache[definition.opcode] = defaults
+        self._remember_parameter_values(definition, defaults)
         self._window.set_parameter_values(defaults)
 
     def _cache_current_values(self) -> None:
         definition = self._selected_definition
         if definition is None:
             return
-        self._parameter_value_cache[definition.opcode] = (
-            self._window.get_parameter_values()
+        self._remember_parameter_values(
+            definition,
+            self._window.get_parameter_values(),
+        )
+
+    def _values_for_definition(
+        self, definition: ConsoleCommandDefinition
+    ) -> dict[str, Any]:
+        values = self._defaults(definition)
+        values.update(
+            self._copy_parameter_values(
+                self._parameter_value_cache.get(definition.opcode, {})
+            )
+        )
+        shared = self._shared_parameter_values.get(definition.name, {})
+        parameter_names = {parameter.name for parameter in definition.parameters}
+        values.update(
+            self._copy_parameter_values(
+                {
+                    name: value
+                    for name, value in shared.items()
+                    if name in parameter_names
+                }
+            )
+        )
+        return values
+
+    def _remember_parameter_values(
+        self,
+        definition: ConsoleCommandDefinition,
+        values: Mapping[str, Any],
+    ) -> None:
+        copied = self._copy_parameter_values(values)
+        self._parameter_value_cache[definition.opcode] = copied
+        parameter_names = {parameter.name for parameter in definition.parameters}
+        shared = self._shared_parameter_values.setdefault(definition.name, {})
+        shared.update(
+            self._copy_parameter_values(
+                {
+                    name: value
+                    for name, value in copied.items()
+                    if name in parameter_names
+                }
+            )
         )
 
     def _drain_transport_events(self) -> None:
@@ -233,8 +278,14 @@ class HciCommandConsoleApplication:
     def _close(self) -> None:
         try:
             port, baud_rate = self._window.get_connection_settings()
+            width, height = self._window.get_window_size()
             self._settings_store.save(
-                CommandConsoleSettings(port=port, baud_rate=baud_rate)
+                CommandConsoleSettings(
+                    port=port,
+                    baud_rate=baud_rate,
+                    window_width=width,
+                    window_height=height,
+                )
             )
         except Exception as exc:
             self._append_application_error(f"Settings save failed: {exc}")
@@ -250,4 +301,11 @@ class HciCommandConsoleApplication:
                 else parameter.default
             )
             for parameter in definition.parameters
+        }
+
+    @staticmethod
+    def _copy_parameter_values(values: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            name: list(value) if isinstance(value, (list, tuple)) else value
+            for name, value in values.items()
         }

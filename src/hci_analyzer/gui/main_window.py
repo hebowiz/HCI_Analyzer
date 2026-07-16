@@ -5,8 +5,16 @@ import tkinter as tk
 from collections.abc import Callable
 from tkinter import scrolledtext, ttk
 
-from hci_analyzer.config import APP_NAME, DEFAULT_BAUD_RATE, SUPPORTED_BAUD_RATES
+from hci_analyzer.config import (
+    ANALYZER_DEFAULT_WINDOW_SIZE,
+    ANALYZER_MINIMUM_WINDOW_SIZE,
+    APP_NAME,
+    DEFAULT_BAUD_RATE,
+    SUPPORTED_BAUD_RATES,
+)
 from hci_analyzer.models import LogRecord
+from hci_analyzer.sequence.diagram import HciSequenceDiagram
+from hci_analyzer.gui.sequence_window import SequenceDiagramWindow
 
 
 class MainWindow:
@@ -23,8 +31,11 @@ class MainWindow:
         self._on_manual_parse = on_manual_parse
         self._root = tk.Tk()
         self._root.title(APP_NAME)
-        self._root.geometry("1100x720")
-        self._root.minsize(800, 520)
+        self._root.geometry(
+            f"{ANALYZER_DEFAULT_WINDOW_SIZE[0]}x"
+            f"{ANALYZER_DEFAULT_WINDOW_SIZE[1]}"
+        )
+        self._root.minsize(*ANALYZER_MINIMUM_WINDOW_SIZE)
         self._root.columnconfigure(0, weight=1)
         self._root.rowconfigure(2, weight=1)
 
@@ -37,25 +48,35 @@ class MainWindow:
         self._stop_button: ttk.Button
         self._refresh_button: ttk.Button
         self._status_variable = tk.StringVar(value="停止中")
+        self._sequence_windows: list[SequenceDiagramWindow] = []
         self._build_controls()
 
     def run(self) -> None:
         """Start the Tkinter event loop."""
         self._root.mainloop()
 
-    def set_serial_ports(self, ports: list[str]) -> None:
+    def set_serial_ports(
+        self,
+        ports: list[str],
+        preferred_port_one: str | None = None,
+        preferred_port_two: str | None = None,
+    ) -> None:
         """Populate both serial-port selectors."""
         current_one = self._port_one_combo.get()
         current_two = self._port_two_combo.get()
         self._port_one_combo.configure(values=ports)
         self._port_two_combo.configure(values=ports)
-        if current_one in ports:
+        if preferred_port_one in ports:
+            self._port_one_combo.set(preferred_port_one)
+        elif current_one in ports:
             self._port_one_combo.set(current_one)
         elif ports:
             self._port_one_combo.set(ports[0])
         else:
             self._port_one_combo.set("")
-        if current_two in ports:
+        if preferred_port_two in ports:
+            self._port_two_combo.set(preferred_port_two)
+        elif current_two in ports:
             self._port_two_combo.set(current_two)
         elif len(ports) > 1:
             self._port_two_combo.set(ports[1])
@@ -63,6 +84,13 @@ class MainWindow:
             self._port_two_combo.set(ports[0])
         else:
             self._port_two_combo.set("")
+
+    def set_baud_rate(self, baud_rate: int) -> None:
+        """Restore the shared serial baud rate."""
+        selected = (
+            baud_rate if baud_rate in SUPPORTED_BAUD_RATES else DEFAULT_BAUD_RATE
+        )
+        self._baud_rate_combo.set(str(selected))
 
     def append_record(self, record: LogRecord) -> None:
         """Display a timestamped record in the shared log area."""
@@ -125,6 +153,27 @@ class MainWindow:
     def set_close_handler(self, callback: Callable[[], None]) -> None:
         """Set the window-close callback."""
         self._root.protocol("WM_DELETE_WINDOW", callback)
+
+    def set_window_size(self, width: int, height: int) -> None:
+        """Restore the window width and height."""
+        width = min(
+            max(width, ANALYZER_MINIMUM_WINDOW_SIZE[0]),
+            self._root.winfo_screenwidth(),
+        )
+        height = min(
+            max(height, ANALYZER_MINIMUM_WINDOW_SIZE[1]),
+            self._root.winfo_screenheight(),
+        )
+        self._root.geometry(f"{width}x{height}")
+
+    def get_window_size(self) -> tuple[int, int]:
+        """Return the current window width and height."""
+        self._root.update_idletasks()
+        return self._root.winfo_width(), self._root.winfo_height()
+
+    def show_sequence_diagram(self, diagram: HciSequenceDiagram) -> None:
+        """Open a new window containing the generated HCI sequence."""
+        self._sequence_windows.append(SequenceDiagramWindow(self._root, diagram))
 
     def after(self, milliseconds: int, callback: Callable[[], None]) -> None:
         """Schedule work on the Tkinter UI thread."""

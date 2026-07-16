@@ -51,6 +51,7 @@ class CommandConsoleSupportTests(unittest.TestCase):
         self.application = object.__new__(HciCommandConsoleApplication)
         self.application._command_support = {}
         self.application._parameter_value_cache = {}
+        self.application._shared_parameter_values = {}
         self.application._selected_definition = None
         self.application._window = _WindowStub()
 
@@ -105,9 +106,7 @@ class CommandConsoleSupportTests(unittest.TestCase):
 
     def test_command_parameters_are_restored_after_switching_commands(self) -> None:
         self.application._window.on_form_shown = (
-            lambda definition, values: self.application._parameter_value_cache.__setitem__(
-                definition.opcode, values
-            )
+            self.application._remember_parameter_values
         )
         transmitter_v3 = COMMAND_DEFINITIONS_BY_OPCODE[0x2050]
         self.application._select_command(transmitter_v3.opcode)
@@ -128,6 +127,78 @@ class CommandConsoleSupportTests(unittest.TestCase):
             self.application._window.values["Antenna_IDs"],
             ["3", "4", "5"],
         )
+
+    def test_common_parameters_are_shared_between_transmitter_versions(self) -> None:
+        self.application._select_command(0x2034)
+        self.application._window.values.update(
+            {
+                "TX_Channel": "7",
+                "Test_Data_Length": "100",
+                "Packet_Payload": 0x03,
+                "PHY": 0x02,
+            }
+        )
+
+        self.application._select_command(0x207B)
+
+        self.assertEqual(self.application._window.values["TX_Channel"], "7")
+        self.assertEqual(
+            self.application._window.values["Test_Data_Length"], "100"
+        )
+        self.assertEqual(self.application._window.values["Packet_Payload"], 0x03)
+        self.assertEqual(self.application._window.values["PHY"], 0x02)
+        self.assertEqual(self.application._window.values["TX_Power_Mode"], 0)
+
+    def test_common_parameters_are_shared_between_receiver_versions(self) -> None:
+        self.application._select_command(0x2033)
+        self.application._window.values.update(
+            {
+                "RX_Channel": "12",
+                "PHY": 0x03,
+                "Modulation_Index": 0x01,
+            }
+        )
+
+        self.application._select_command(0x204F)
+
+        self.assertEqual(self.application._window.values["RX_Channel"], "12")
+        self.assertEqual(self.application._window.values["PHY"], 0x03)
+        self.assertEqual(
+            self.application._window.values["Modulation_Index"], 0x01
+        )
+
+    def test_same_parameter_name_is_not_shared_between_command_families(self) -> None:
+        self.application._select_command(0x2034)
+        self.application._window.values["PHY"] = 0x02
+
+        self.application._select_command(0x2033)
+
+        self.assertEqual(self.application._window.values["PHY"], 0x01)
+
+    def test_version_specific_values_survive_shared_parameter_updates(self) -> None:
+        self.application._select_command(0x207B)
+        self.application._window.values.update(
+            {
+                "CTE_Length": "10",
+                "Antenna_IDs": ["1", "2", "3"],
+                "TX_Power_Mode": 0x02,
+                "TX_Power_Level": "-5",
+            }
+        )
+
+        self.application._select_command(0x2050)
+        self.assertEqual(self.application._window.values["CTE_Length"], "10")
+        self.assertEqual(
+            self.application._window.values["Antenna_IDs"],
+            ["1", "2", "3"],
+        )
+        self.application._window.values["CTE_Length"] = "4"
+
+        self.application._select_command(0x207B)
+
+        self.assertEqual(self.application._window.values["CTE_Length"], "4")
+        self.assertEqual(self.application._window.values["TX_Power_Mode"], 0x02)
+        self.assertEqual(self.application._window.values["TX_Power_Level"], "-5")
 
 
 if __name__ == "__main__":

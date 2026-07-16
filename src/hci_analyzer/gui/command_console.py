@@ -12,7 +12,12 @@ from hci_analyzer.command_builder.definitions import (
     ParameterDefinition,
     ParameterKind,
 )
-from hci_analyzer.config import DEFAULT_BAUD_RATE, SUPPORTED_BAUD_RATES
+from hci_analyzer.config import (
+    COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE,
+    COMMAND_CONSOLE_MINIMUM_WINDOW_SIZE,
+    DEFAULT_BAUD_RATE,
+    SUPPORTED_BAUD_RATES,
+)
 from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 
@@ -110,8 +115,11 @@ class CommandConsoleWindow:
 
         self._root = tk.Tk()
         self._root.title("HCI Command Console")
-        self._root.geometry("1180x800")
-        self._root.minsize(900, 650)
+        self._root.geometry(
+            f"{COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE[0]}x"
+            f"{COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE[1]}"
+        )
+        self._root.minsize(*COMMAND_CONSOLE_MINIMUM_WINDOW_SIZE)
         self._root.columnconfigure(0, weight=1)
         self._root.rowconfigure(3, weight=1)
 
@@ -331,6 +339,23 @@ class CommandConsoleWindow:
     def set_close_handler(self, callback: Callable[[], None]) -> None:
         """Set the window-close callback."""
         self._root.protocol("WM_DELETE_WINDOW", callback)
+
+    def set_window_size(self, width: int, height: int) -> None:
+        """Restore the window width and height."""
+        width = min(
+            max(width, COMMAND_CONSOLE_MINIMUM_WINDOW_SIZE[0]),
+            self._root.winfo_screenwidth(),
+        )
+        height = min(
+            max(height, COMMAND_CONSOLE_MINIMUM_WINDOW_SIZE[1]),
+            self._root.winfo_screenheight(),
+        )
+        self._root.geometry(f"{width}x{height}")
+
+    def get_window_size(self) -> tuple[int, int]:
+        """Return the current window width and height."""
+        self._root.update_idletasks()
+        return self._root.winfo_width(), self._root.winfo_height()
 
     def after(self, milliseconds: int, callback: Callable[[], None]) -> None:
         self._root.after(milliseconds, callback)

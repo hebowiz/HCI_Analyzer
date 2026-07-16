@@ -1,0 +1,1 @@
+"""Sequence-diagram test package."""
