@@ -554,20 +554,37 @@ Opcode不一致のEventは未関連RXイベントとしてログ表示する。
 - Status
 - 応答時間
 - RAW Hex
-- 解析結果
+- JSON解析結果
+- 人間向けSUMMARY
 
 ### 12.2 表示例
 
 ```text
 [2026-07-16T20:30:01.123+09:00] [TX] [Transaction 12]
-HCI_LE_Transmitter_Test[v2] Opcode=0x2034
 RAW: 01 34 20 04 13 25 00 01
-Parameters: TX_Channel=19, Frequency=2440 MHz, ...
+{"display_name":"HCI_LE_Transmitter_Test[v2]", ...}
+SUMMARY
+  Command                : HCI_LE_Transmitter_Test [v2]
+  Opcode                 : 0x2034
+  TX Channel             : 19 (2440 MHz)
+  Data Length            : 37 bytes
+  Payload                : PRBS9 (0x00)
+  PHY                    : LE 1M PHY (0x01)
 
 [2026-07-16T20:30:01.140+09:00] [RX] [Transaction 12] [17 ms]
-HCI_Command_Complete / LE_Status Status=0x00
 RAW: 04 0E 04 01 34 20 00
+{"event_name":"HCI_Command_Complete", ...}
+SUMMARY
+  Event                  : HCI_Command_Complete
+  For Command            : HCI_LE_Transmitter_Test [v2] (0x2034)
+  Status                 : Success (0x00)
+  Response Time          : 17.0 ms
 ```
+
+SUMMARYはコマンドまたはイベントの種類に応じて、周波数、PHY、CTE、
+アンテナID、TX Power、受信パケット数、Supported Commands対応状況、
+IQサンプルの先頭部分などを読みやすい形式で表示する。RAWおよびJSON解析結果は
+従来どおり保持する。
 
 ### 12.3 フィルター
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tkinter as tk
 from collections.abc import Callable
 from tkinter import scrolledtext, ttk
@@ -14,6 +13,7 @@ from hci_analyzer.command_builder.definitions import (
     ParameterKind,
 )
 from hci_analyzer.config import DEFAULT_BAUD_RATE, SUPPORTED_BAUD_RATES
+from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 
 
@@ -759,33 +759,7 @@ class CommandConsoleWindow:
                 self._append_event_text(event)
 
     def _append_event_text(self, event: TransportEvent) -> None:
-        timestamp = event.timestamp.isoformat(timespec="milliseconds")
-        transaction = (
-            f" [Transaction {event.transaction_id}]"
-            if event.transaction_id is not None
-            else ""
-        )
-        response_time = (
-            f" [{event.response_time_ms:.1f} ms]"
-            if event.response_time_ms is not None
-            else ""
-        )
-        lines = [
-            f"[{timestamp}] [{event.kind.value.upper()}]{transaction}{response_time}"
-        ]
-        if event.raw_data:
-            lines.append(f"RAW: {event.raw_data.hex(' ').upper()}")
-        if event.parsed is not None:
-            detail = (
-                event.parsed.decoded
-                if event.parsed.success
-                else event.parsed.error.to_dict()
-                if event.parsed.error
-                else {"error": "Unknown parser error"}
-            )
-            lines.append(json.dumps(detail, ensure_ascii=False, sort_keys=True))
-        if event.message:
-            lines.append(event.message)
+        lines = format_transport_event(event)
         self._log_text.configure(state=tk.NORMAL)
         self._log_text.insert(tk.END, "\n".join(lines) + "\n")
         self._log_text.see(tk.END)
