@@ -30,6 +30,15 @@ python -m pip install -r requirements.txt
 
 ## 起動
 
+仮想環境を使用してBATファイルから起動できます。
+
+```powershell
+run_analyzer.bat
+run_command_console.bat
+```
+
+Pythonから直接起動する場合:
+
 ```powershell
 python analyzer.py
 ```
