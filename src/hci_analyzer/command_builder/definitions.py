@@ -78,6 +78,7 @@ class ConsoleCommandDefinition:
 
 
 LE_RF_PHY_TEST = "LE RF PHY Test"
+INFORMATIONAL_PARAMETERS = "Informational Parameters"
 
 CHANNEL_DEFAULT = 19
 DATA_LENGTH_DEFAULT = 37
@@ -290,6 +291,26 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
         LE_RF_PHY_TEST,
         (),
         description="End the current LE receiver or transmitter test.",
+    ),
+    ConsoleCommandDefinition(
+        0x1002,
+        "HCI_Read_Local_Supported_Commands",
+        "v1",
+        INFORMATIONAL_PARAMETERS,
+        (),
+        description=(
+            "Read the 64-octet Supported Commands bit field from the Controller."
+        ),
+    ),
+    ConsoleCommandDefinition(
+        0x1010,
+        "HCI_Read_Local_Supported_Commands",
+        "v2",
+        INFORMATIONAL_PARAMETERS,
+        (),
+        description=(
+            "Read the extended 251-octet Supported Commands bit field."
+        ),
     ),
 )
 

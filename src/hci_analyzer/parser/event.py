@@ -4,10 +4,12 @@ from typing import Any
 
 from hci_analyzer.models import H4PacketIndicator, ParseError, ParseResult
 from hci_analyzer.parser.registry import (
+    COMMAND_COMPLETE_RETURN_LENGTHS,
     COMMAND_DEFINITIONS,
     EVENT_NAMES,
     LE_META_EVENT_NAMES,
     command_display_name,
+    decode_supported_command_bits,
 )
 
 
@@ -75,7 +77,7 @@ class HciEventParser:
             return self._unknown_opcode(frame, common, opcode)
 
         return_params = params[3:]
-        expected_return_length = 3 if opcode == 0x201F else 1
+        expected_return_length = COMMAND_COMPLETE_RETURN_LENGTHS.get(opcode, 1)
         if len(return_params) != expected_return_length:
             return self._error(
                 frame,
@@ -99,10 +101,25 @@ class HciEventParser:
             "status": status,
             "status_hex": f"0x{status:02X}",
             "status_name": "command succeeded" if status == 0 else "command failed",
-            "rf_test_event": "LE_Packet_Report" if opcode == 0x201F else "LE_Status",
         }
         if opcode == 0x201F:
+            decoded["rf_test_event"] = "LE_Packet_Report"
             decoded["num_packets"] = int.from_bytes(return_params[1:3], "little")
+        elif opcode in (0x1002, 0x1010):
+            supported_commands = return_params[1:]
+            decoded.update(
+                {
+                    "response_type": "Supported_Commands",
+                    "supported_commands_length": len(supported_commands),
+                    "supported_commands_hex": supported_commands.hex(" ").upper(),
+                    "supported_commands": list(supported_commands),
+                    "relevant_command_support": decode_supported_command_bits(
+                        supported_commands
+                    ),
+                }
+            )
+        else:
+            decoded["rf_test_event"] = "LE_Status"
         return ParseResult(True, "HCI_Event", frame, decoded=decoded)
 
     def _parse_command_status(

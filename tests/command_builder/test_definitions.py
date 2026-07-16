@@ -9,11 +9,22 @@ from hci_analyzer.command_builder.definitions import (
 
 
 class CommandDefinitionTests(unittest.TestCase):
-    def test_initial_scope_contains_eight_commands(self) -> None:
-        self.assertEqual(len(CONSOLE_COMMAND_DEFINITIONS), 8)
+    def test_scope_contains_ten_commands(self) -> None:
+        self.assertEqual(len(CONSOLE_COMMAND_DEFINITIONS), 10)
         self.assertEqual(
             set(COMMAND_DEFINITIONS_BY_OPCODE),
-            {0x201D, 0x2033, 0x204F, 0x201E, 0x2034, 0x2050, 0x207B, 0x201F},
+            {
+                0x201D,
+                0x2033,
+                0x204F,
+                0x201E,
+                0x2034,
+                0x2050,
+                0x207B,
+                0x201F,
+                0x1002,
+                0x1010,
+            },
         )
 
     def test_every_parameter_has_a_default(self) -> None:
@@ -34,6 +45,7 @@ class CommandDefinitionTests(unittest.TestCase):
                 "HCI_LE_Transmitter_Test",
                 "HCI_LE_Receiver_Test",
                 "HCI_LE_Test_End",
+                "HCI_Read_Local_Supported_Commands",
             ],
         )
 

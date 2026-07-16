@@ -47,6 +47,14 @@ class H4StreamDecoderTests(unittest.TestCase):
 
         self.assertEqual(chunk.frames, [bytes.fromhex("02 01 20 03 00 AA BB CC")])
 
+    def test_maximum_length_event_frame_is_preserved(self) -> None:
+        decoder = H4StreamDecoder()
+        frame = bytes.fromhex("04 0E FF 01 10 10 00") + bytes(251)
+
+        chunk = decoder.feed(frame)
+
+        self.assertEqual(chunk.frames, [frame])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -70,6 +70,59 @@ class HciEventParserTests(unittest.TestCase):
         self.assertEqual(result.decoded["event_name"], "Unknown HCI Event")
         self.assertEqual(result.decoded["parameters_hex"], "AA BB")
 
+    def test_supported_commands_v1_response(self) -> None:
+        supported = bytearray(64)
+        supported[28] = (1 << 4) | (1 << 5) | (1 << 6)
+        supported[36] = 1 << 0
+        frame = (
+            bytes.fromhex("04 0E 44 01 02 10 00")
+            + bytes(supported)
+        )
+
+        result = self.parser.parse_bytes(frame)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.decoded["command_name"],
+            "HCI_Read_Local_Supported_Commands[v1]",
+        )
+        self.assertEqual(result.decoded["supported_commands_length"], 64)
+        support = result.decoded["relevant_command_support"]
+        self.assertTrue(support["HCI_LE_Receiver_Test[v1]"])
+        self.assertTrue(support["HCI_LE_Transmitter_Test[v1]"])
+        self.assertTrue(support["HCI_LE_Test_End"])
+        self.assertTrue(support["HCI_LE_Transmitter_Test[v2]"])
+        self.assertFalse(support["HCI_LE_Transmitter_Test[v4]"])
+
+    def test_supported_commands_v2_response(self) -> None:
+        supported = bytearray(251)
+        supported[45] = 1 << 0
+        supported[49] = 1 << 0
+        frame = (
+            bytes.fromhex("04 0E FF 01 10 10 00")
+            + bytes(supported)
+        )
+
+        result = self.parser.parse_bytes(frame)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.decoded["command_name"],
+            "HCI_Read_Local_Supported_Commands[v2]",
+        )
+        self.assertEqual(result.decoded["supported_commands_length"], 251)
+        support = result.decoded["relevant_command_support"]
+        self.assertTrue(support["HCI_LE_Transmitter_Test[v4]"])
+        self.assertTrue(support["HCI_Read_Local_Supported_Commands[v2]"])
+
+    def test_supported_commands_response_length_mismatch(self) -> None:
+        frame = bytes.fromhex("04 0E 04 01 02 10 00")
+
+        result = self.parser.parse_bytes(frame)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.error.code, "RETURN_PARAMETER_LENGTH_MISMATCH")
+
 
 if __name__ == "__main__":
     unittest.main()

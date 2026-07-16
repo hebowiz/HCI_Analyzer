@@ -1,4 +1,4 @@
-"""Definitions and display mappings for supported LE RF PHY tests."""
+"""Definitions and display mappings for supported HCI commands."""
 
 from dataclasses import dataclass
 from typing import Final
@@ -43,6 +43,32 @@ COMMAND_DEFINITIONS: Final[dict[int, CommandDefinition]] = {
         variable_length_base=8,
     ),
     0x201F: CommandDefinition(0x201F, "HCI_LE_Test_End", None, 0),
+    0x1002: CommandDefinition(
+        0x1002, "HCI_Read_Local_Supported_Commands", "v1", 0
+    ),
+    0x1010: CommandDefinition(
+        0x1010, "HCI_Read_Local_Supported_Commands", "v2", 0
+    ),
+}
+
+COMMAND_COMPLETE_RETURN_LENGTHS: Final[dict[int, int]] = {
+    0x201F: 3,
+    0x1002: 65,
+    0x1010: 252,
+}
+
+SUPPORTED_COMMAND_BITS: Final[dict[str, tuple[int, int]]] = {
+    "HCI_LE_CS_Test": (23, 3),
+    "HCI_LE_CS_Test_End": (23, 4),
+    "HCI_LE_Receiver_Test[v1]": (28, 4),
+    "HCI_LE_Transmitter_Test[v1]": (28, 5),
+    "HCI_LE_Test_End": (28, 6),
+    "HCI_LE_Receiver_Test[v2]": (35, 7),
+    "HCI_LE_Transmitter_Test[v2]": (36, 0),
+    "HCI_LE_Receiver_Test[v3]": (39, 3),
+    "HCI_LE_Transmitter_Test[v3]": (39, 4),
+    "HCI_LE_Transmitter_Test[v4]": (45, 0),
+    "HCI_Read_Local_Supported_Commands[v2]": (49, 0),
 }
 
 RECEIVER_PHY_NAMES: Final[dict[int, str]] = {
@@ -102,3 +128,11 @@ def command_display_name(opcode: int) -> str | None:
     if definition.version is None:
         return definition.name
     return f"{definition.name}[{definition.version}]"
+
+
+def decode_supported_command_bits(data: bytes) -> dict[str, bool]:
+    """Decode the capability bits relevant to this application."""
+    return {
+        name: octet < len(data) and bool(data[octet] & (1 << bit))
+        for name, (octet, bit) in SUPPORTED_COMMAND_BITS.items()
+    }

@@ -69,6 +69,8 @@ class HciCommandEncoderTests(unittest.TestCase):
                 },
             ),
             0x201F: ("01 1F 20 00", {}),
+            0x1002: ("01 02 10 00", {}),
+            0x1010: ("01 10 10 00", {}),
         }
         for opcode, (expected_hex, values) in cases.items():
             with self.subTest(opcode=f"0x{opcode:04X}"):

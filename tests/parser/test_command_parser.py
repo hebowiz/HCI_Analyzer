@@ -68,6 +68,18 @@ class HciCommandParserTests(unittest.TestCase):
         self.assertEqual(result.decoded["command_name"], "HCI_LE_Test_End")
         self.assertEqual(result.decoded["parameters"], {})
 
+    def test_read_local_supported_commands_versions(self) -> None:
+        cases = (
+            ("01 02 10 00", "HCI_Read_Local_Supported_Commands[v1]"),
+            ("01 10 10 00", "HCI_Read_Local_Supported_Commands[v2]"),
+        )
+        for frame, expected_name in cases:
+            with self.subTest(frame=frame):
+                result = self.parser.parse_hex_string(frame)
+                self.assertTrue(result.success)
+                self.assertEqual(result.decoded["display_name"], expected_name)
+                self.assertEqual(result.decoded["parameters"], {})
+
     def test_unknown_opcode_is_error(self) -> None:
         result = self.parser.parse_hex_string("01 01 20 00")
 
