@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hci-analyzer"
+version = "0.1.0"
+description = "UART HCI analyzer for Bluetooth LE RF PHY tests"
+requires-python = ">=3.11"
+dependencies = [
+    "pyserial>=3.5,<4",
+]
+
+[project.gui-scripts]
+hci-analyzer = "hci_analyzer.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
