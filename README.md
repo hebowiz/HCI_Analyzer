@@ -1,85 +1,138 @@
-# HCI LE RF PHY Analyzer
+# HCI Analyzer / HCI Command Console
 
-2つのシリアルポートからUART HCI（H4）を受信し、Bluetooth LE RF PHY Testの
-Command/Eventを解析するPython/Tkinterアプリです。
+UART HCI（H4）で送受信されるBluetooth LE RF PHY TestのCommand/Eventを
+解析するPython/Tkinterアプリケーションです。
 
-## 対応範囲
+このリポジトリには、用途の異なる次の2つのアプリが含まれます。
 
-- `HCI_LE_Receiver_Test` v1～v3
-- `HCI_LE_Transmitter_Test` v1～v4
-- `HCI_LE_Test_End`
-- `HCI_Reset`
-- `HCI_Read_Local_Supported_Commands` v1/v2
-- `HCI_Command_Complete`（`LE_Status` / `LE_Packet_Report`）
-- `HCI_Command_Status`
-- `HCI_LE_Connectionless_IQ_Report`
-- H4 Command/Eventのフレーム分割と接続開始時ノイズの破棄
-- ACL/SCO/ISOパケットの基本フレーム情報
-- 2ポート同時受信、共通ボーレート、8-N-1、フロー制御なし
-- GUIでのHex String手動解析
-- `logs/hci_YYYYMMDD_HHMMSS.jsonl` へのJSON Lines保存
-- 解析終了時にJSONLからHCIシーケンス図を生成
-- Markdown `.md`とプレビュー全体のPNGスクリーンショット出力
-
-Channel Soundingコマンドの詳細解析は未対応です。
+| アプリ | 用途 |
+|---|---|
+| HCI Analyzer | 最大2つのシリアルポートを受信専用で監視し、HCI通信を解析・保存する |
+| HCI Command Console | GUIからHCI Commandを送信してControllerを制御する |
 
 ## セットアップ
+
+Windows PowerShellでリポジトリ直下から実行します。
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-## 起動
+## HCI Analyzer
 
-仮想環境を使用してBATファイルから起動できます。
+### 機能
+
+- 最大2ポートの同時受信
+- 2ポート共通のボーレート（最大3 Mbps）
+- 8 data bits / no parity / 1 stop bit / flow controlなし
+- 同一ポートを2つの選択欄で指定した場合は、そのポートだけを監視
+- H4 Command/Eventのフレーム復元と接続開始時ノイズの破棄
+- ACL/SCO/ISOパケットの基本フレーム情報解析
+- Hex Stringの手動解析
+- 2ポートと手動解析の結果を1つのGUIログへ統合
+- `logs/hci_YYYYMMDD_HHMMSS.jsonl`へのJSON Lines保存
+- 解析終了時にJSONLからHCIシーケンス図を生成
+- シーケンス図を別ウィンドウでプレビュー
+- Markdownとプレビュー全体のPNGスクリーンショットを一括保存
+
+Analyzerは受信専用です。シリアルポートへのデータ送信は行いません。
+
+### 起動
 
 ```powershell
 run_analyzer.bat
-run_command_console.bat
 ```
 
-Pythonから直接起動する場合:
+または、仮想環境を有効にして直接起動します。
 
 ```powershell
 python analyzer.py
 ```
 
 2つのシリアルポートと共通ボーレートを選択し、「解析開始」を押します。
-両方に同じポートを選択した場合、そのポートだけを1つの受信スレッドで監視します。
-アプリは受信専用であり、シリアルポートへのデータ送信は行いません。
+「解析終了」を押すと、そのセッションのJSONLを閉じてシーケンス図の
+プレビューウィンドウを開きます。
 
-Command Consoleでは、GUIからLE RF PHY Testコマンドとパラメーターを選択し、
-UART HCI Commandを送信して応答Eventを確認できます。
-Packet Preview欄のクイックボタンからHCI ResetとHCI LE Test Endを
-コマンド選択とは独立して1クリック送信できます。
-Informational ParametersカテゴリからSupported Commands v1/v2も送信できます。
-両アプリとも終了時のウィンドウサイズを記憶し、次回起動時に復元します。
-Analyzerはポート1・ポート2・共通ボーレートも終了時に記憶します。
-Command Consoleはポート・ボーレート・応答タイムアウトも記憶します。
-保存したポートが次回起動時に存在しない場合は、利用可能なポートを選択します。
-Analyzerで「解析終了」を押すと、直近のJSONLログからHostとController間の
-シーケンス図を生成し、新しいMarkdownプレビューウィンドウに表示します。
-プレビューの保存ボタンを押すと、元のJSONLと同じフォルダへ
-`<ログファイル名>_sequence.md`と`<ログファイル名>_sequence.png`を
-まとめて保存します。
+シーケンス図の保存ボタンを押すと、元のJSONLと同じフォルダへ次の2ファイルを
+同時に保存します。ファイル名と保存先を指定するダイアログは表示しません。
+
+```text
+hci_YYYYMMDD_HHMMSS_sequence.md
+hci_YYYYMMDD_HHMMSS_sequence.png
+```
+
+終了時には、ポート1、ポート2、共通ボーレート、ウィンドウサイズを記憶し、
+次回起動時に復元します。保存したポートが存在しない場合は、利用可能なポートを
+初期選択します。
+
+## HCI Command Console
+
+GUIでコマンドとパラメーターを指定し、HCI Commandを送信してControllerを
+制御するアプリです。送信内容とControllerからの応答は、制御結果を確認するため
+GUIログへ解析表示します。
+
+### 機能
+
+- 1つのシリアルポートによるHCI Command送信とHCI Event受信
+- コマンド選択と全パラメーターのGUI入力
+- 入力内容を即時反映するH4 Command Packetプレビュー
+- HCI ResetとHCI LE Test Endの1クリック送信
+- 送信Commandと受信Eventを共通ログへ表示
+- コマンド・イベント名とパラメーターの読みやすいSUMMARY表示
+- Supported Commands v1/v2によるController対応状況の判定
+- 1、2、3秒から選択できる応答タイムアウト（初期値1秒）
+
+Command Consoleのログはアプリ実行中の画面表示のみで、ファイルへ保存しません。
+応答待ち中は追加のコマンド送信とタイムアウト変更を無効化します。
+
+### 起動
+
+```powershell
+run_command_console.bat
+```
+
+または、仮想環境を有効にして直接起動します。
 
 ```powershell
 python command_console.py
 ```
 
-Analyzerの詳細設計は
-[`docs/hci_analyzer_detailed_design.md`](docs/hci_analyzer_detailed_design.md)
-を参照してください。
+終了時には、ポート、ボーレート、応答タイムアウト、ウィンドウサイズを記憶し、
+次回起動時に復元します。保存したタイムアウトが未設定または不正な場合は、
+初期値の1秒を使用します。
 
-Command Consoleの詳細設計は
-[`docs/hci_command_console_detailed_design.md`](docs/hci_command_console_detailed_design.md)
-を参照してください。
+## 対応するHCI Command / Event
 
-シーケンス図の変換仕様は
-[`docs/hci_sequence_diagram_design.md`](docs/hci_sequence_diagram_design.md)
-を参照してください。
+### 詳細解析するCommand
+
+- `HCI_LE_Receiver_Test` v1～v3
+- `HCI_LE_Transmitter_Test` v1～v4
+- `HCI_LE_Test_End`
+- `HCI_Reset`
+- `HCI_Read_Local_Supported_Commands` v1/v2
+
+### 詳細解析するEvent
+
+- `HCI_Command_Complete`
+  - LE RF PHY Testの`LE_Status`
+  - HCI LE Test Endの`LE_Packet_Report`
+  - HCI ResetのStatus
+  - Supported Commands v1/v2のビットマップ
+- `HCI_Command_Status`
+- `HCI_LE_Connectionless_IQ_Report`
+
+未対応のHCI EventはEvent Code、長さ、ParameterのRAW Hexを保持します。
+Channel Sounding Commandの詳細パラメーター解析は未対応です。
+
+## 設計資料
+
+- [HCI Analyzer詳細設計](docs/hci_analyzer_detailed_design.md)
+- [HCI Command Console詳細設計](docs/hci_command_console_detailed_design.md)
+- [HCIシーケンス図設計](docs/hci_sequence_diagram_design.md)
+- [HCI LE RF PHY Test Command定義](docs/ble_le_rf_phy_test_hci_commands.md)
 
 ## テスト
 

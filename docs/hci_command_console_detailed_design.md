@@ -3,7 +3,7 @@
 ## 1. 目的
 
 HCI Command Consoleは、GUIからBluetooth HCIコマンドと全パラメーターを指定し、
-UART HCI（H4）形式でControllerへ送信するアプリケーションである。
+UART HCI（H4）形式で送信してControllerを制御するアプリケーションである。
 
 送信したHCI CommandとControllerから受信したHCI Eventは、既存のHCI Analyzerと
 同じ解析結果を用いてGUI内の共通ログへ表示する。ログファイルへの保存は行わない。
