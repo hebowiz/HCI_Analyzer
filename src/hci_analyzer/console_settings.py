@@ -11,7 +11,9 @@ from hci_analyzer.config import (
     COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE,
     COMMAND_CONSOLE_MINIMUM_WINDOW_SIZE,
     DEFAULT_BAUD_RATE,
+    DEFAULT_RESPONSE_TIMEOUT_SECONDS,
     SUPPORTED_BAUD_RATES,
+    SUPPORTED_RESPONSE_TIMEOUT_SECONDS,
 )
 
 
@@ -24,6 +26,7 @@ class CommandConsoleSettings:
 
     port: str = ""
     baud_rate: int = DEFAULT_BAUD_RATE
+    response_timeout_seconds: int = DEFAULT_RESPONSE_TIMEOUT_SECONDS
     window_width: int = COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE[0]
     window_height: int = COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE[1]
 
@@ -45,10 +48,19 @@ class CommandConsoleSettingsStore:
 
         port = payload.get("port", "")
         baud_rate = payload.get("baud_rate", DEFAULT_BAUD_RATE)
+        response_timeout_seconds = payload.get(
+            "response_timeout_seconds", DEFAULT_RESPONSE_TIMEOUT_SECONDS
+        )
         if not isinstance(port, str):
             port = ""
         if not isinstance(baud_rate, int) or baud_rate not in SUPPORTED_BAUD_RATES:
             baud_rate = DEFAULT_BAUD_RATE
+        if (
+            not isinstance(response_timeout_seconds, int)
+            or isinstance(response_timeout_seconds, bool)
+            or response_timeout_seconds not in SUPPORTED_RESPONSE_TIMEOUT_SECONDS
+        ):
+            response_timeout_seconds = DEFAULT_RESPONSE_TIMEOUT_SECONDS
         width, height = _valid_window_size(
             payload.get("window_width"),
             payload.get("window_height"),
@@ -56,6 +68,7 @@ class CommandConsoleSettingsStore:
         return CommandConsoleSettings(
             port=port,
             baud_rate=baud_rate,
+            response_timeout_seconds=response_timeout_seconds,
             window_width=width,
             window_height=height,
         )
@@ -66,6 +79,7 @@ class CommandConsoleSettingsStore:
         payload = {
             "port": settings.port,
             "baud_rate": settings.baud_rate,
+            "response_timeout_seconds": settings.response_timeout_seconds,
             "window_width": settings.window_width,
             "window_height": settings.window_height,
         }

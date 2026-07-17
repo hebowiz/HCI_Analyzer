@@ -8,6 +8,7 @@ from pathlib import Path
 from hci_analyzer.config import (
     COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE,
     DEFAULT_BAUD_RATE,
+    DEFAULT_RESPONSE_TIMEOUT_SECONDS,
 )
 from hci_analyzer.console_settings import (
     CommandConsoleSettings,
@@ -25,6 +26,10 @@ class CommandConsoleSettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.port, "")
             self.assertEqual(settings.baud_rate, DEFAULT_BAUD_RATE)
             self.assertEqual(
+                settings.response_timeout_seconds,
+                DEFAULT_RESPONSE_TIMEOUT_SECONDS,
+            )
+            self.assertEqual(
                 (settings.window_width, settings.window_height),
                 COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE,
             )
@@ -37,6 +42,7 @@ class CommandConsoleSettingsStoreTests(unittest.TestCase):
                 CommandConsoleSettings(
                     "COM7",
                     3_000_000,
+                    response_timeout_seconds=2,
                     window_width=1500,
                     window_height=950,
                 )
@@ -46,6 +52,7 @@ class CommandConsoleSettingsStoreTests(unittest.TestCase):
 
             self.assertEqual(settings.port, "COM7")
             self.assertEqual(settings.baud_rate, 3_000_000)
+            self.assertEqual(settings.response_timeout_seconds, 2)
             self.assertEqual(settings.window_width, 1500)
             self.assertEqual(settings.window_height, 950)
 
@@ -62,6 +69,21 @@ class CommandConsoleSettingsStoreTests(unittest.TestCase):
             self.assertEqual(settings.port, "COM7")
             self.assertEqual(settings.baud_rate, DEFAULT_BAUD_RATE)
 
+    def test_invalid_response_timeout_falls_back_to_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text(
+                json.dumps({"response_timeout_seconds": 10}),
+                encoding="utf-8",
+            )
+
+            settings = CommandConsoleSettingsStore(path).load()
+
+            self.assertEqual(
+                settings.response_timeout_seconds,
+                DEFAULT_RESPONSE_TIMEOUT_SECONDS,
+            )
+
     def test_legacy_settings_without_window_size_use_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
@@ -73,6 +95,10 @@ class CommandConsoleSettingsStoreTests(unittest.TestCase):
             settings = CommandConsoleSettingsStore(path).load()
 
             self.assertEqual(settings.port, "COM7")
+            self.assertEqual(
+                settings.response_timeout_seconds,
+                DEFAULT_RESPONSE_TIMEOUT_SECONDS,
+            )
             self.assertEqual(
                 (settings.window_width, settings.window_height),
                 COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE,

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from hci_analyzer.command_builder.definitions import (
     COMMAND_DEFINITIONS_BY_OPCODE,
     CONSOLE_COMMAND_DEFINITIONS,
+    SELECTABLE_COMMAND_DEFINITIONS,
     ConsoleCommandDefinition,
 )
 from hci_analyzer.command_builder.encoder import EncodedCommand, HciCommandEncoder
@@ -47,6 +48,7 @@ class HciCommandConsoleApplication:
             on_command_selected=self._select_command,
             on_preview=self._preview,
             on_send=self._send,
+            on_quick_send=self._send_quick_command,
             on_clear_log=lambda: None,
             on_reset=self._reset_current_values,
             on_reset_command_support=self._clear_command_support,
@@ -63,11 +65,14 @@ class HciCommandConsoleApplication:
         """Start the Command Console event loop."""
         self._refresh_ports(self._saved_settings.port)
         self._window.set_baud_rate(self._saved_settings.baud_rate)
+        self._window.set_response_timeout_seconds(
+            self._saved_settings.response_timeout_seconds
+        )
         self._window.set_window_size(
             self._saved_settings.window_width,
             self._saved_settings.window_height,
         )
-        self._window.set_command_definitions(CONSOLE_COMMAND_DEFINITIONS)
+        self._window.set_command_definitions(SELECTABLE_COMMAND_DEFINITIONS)
         self._window.after(50, self._drain_transport_events)
         self._window.run()
 
@@ -138,16 +143,40 @@ class HciCommandConsoleApplication:
         encoded = self._latest_encoded
         if encoded is None:
             return
+        self._submit_encoded(definition, encoded)
+
+    def _send_quick_command(self, opcode: int) -> None:
+        definition = COMMAND_DEFINITIONS_BY_OPCODE.get(opcode)
+        if definition is None or opcode not in (0x0C03, 0x201F):
+            self._append_application_error(
+                f"Unknown quick command opcode 0x{opcode:04X}"
+            )
+            return
+        try:
+            encoded = self._encoder.encode(definition, {})
+        except ValueError as exc:
+            self._append_application_error(
+                f"Quick command encoding failed: {format_exception_for_log(exc)}"
+            )
+            return
+        self._submit_encoded(definition, encoded)
+
+    def _submit_encoded(
+        self,
+        definition: ConsoleCommandDefinition,
+        encoded: EncodedCommand,
+    ) -> None:
         if self._command_support.get(definition.opcode) is False:
             self._append_application_error(
                 f"{definition.display_name} is not supported by the Controller"
             )
             return
         try:
+            timeout_seconds = self._window.get_response_timeout_seconds()
             self._transport.send(
                 encoded.frame,
                 expected_opcode=definition.opcode,
-                response_timeout_seconds=3.0,
+                response_timeout_seconds=timeout_seconds,
             )
         except Exception as exc:
             self._append_application_error(
@@ -287,11 +316,15 @@ class HciCommandConsoleApplication:
     def _close(self) -> None:
         try:
             port, baud_rate = self._window.get_connection_settings()
+            response_timeout_seconds = int(
+                self._window.get_response_timeout_seconds()
+            )
             width, height = self._window.get_window_size()
             self._settings_store.save(
                 CommandConsoleSettings(
                     port=port,
                     baud_rate=baud_rate,
+                    response_timeout_seconds=response_timeout_seconds,
                     window_width=width,
                     window_height=height,
                 )

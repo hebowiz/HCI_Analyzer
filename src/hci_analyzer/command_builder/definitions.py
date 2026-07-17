@@ -316,3 +316,15 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
 COMMAND_DEFINITIONS_BY_OPCODE = {
     definition.opcode: definition for definition in CONSOLE_COMMAND_DEFINITIONS
 }
+
+QUICK_COMMAND_OPCODES = frozenset({0x0C03, 0x201F})
+QUICK_COMMAND_DEFINITIONS = tuple(
+    definition
+    for definition in CONSOLE_COMMAND_DEFINITIONS
+    if definition.opcode in QUICK_COMMAND_OPCODES
+)
+SELECTABLE_COMMAND_DEFINITIONS = tuple(
+    definition
+    for definition in CONSOLE_COMMAND_DEFINITIONS
+    if definition.opcode not in QUICK_COMMAND_OPCODES
+)

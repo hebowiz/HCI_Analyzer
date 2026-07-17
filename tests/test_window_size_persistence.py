@@ -38,6 +38,9 @@ class _ConsoleWindowStub:
     def get_window_size(self) -> tuple[int, int]:
         return 1500, 950
 
+    def get_response_timeout_seconds(self) -> float:
+        return 2.0
+
     def destroy(self) -> None:
         self.destroyed = True
 
@@ -82,6 +85,7 @@ class WindowSizePersistenceTests(unittest.TestCase):
         saved = application._settings_store.saved
         self.assertEqual(saved.port, "COM7")
         self.assertEqual(saved.baud_rate, 3_000_000)
+        self.assertEqual(saved.response_timeout_seconds, 2)
         self.assertEqual(saved.window_width, 1500)
         self.assertEqual(saved.window_height, 950)
         self.assertTrue(application._window.destroyed)

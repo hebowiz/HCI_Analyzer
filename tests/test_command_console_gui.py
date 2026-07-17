@@ -1,9 +1,11 @@
 """Logic tests for Command Console selection defaults."""
 
+import tkinter as tk
 import unittest
-from unittest.mock import Mock, patch
 
-from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 from hci_analyzer.gui.command_console import CommandConsoleWindow
 
 
@@ -35,22 +37,75 @@ class CommandConsoleWindowTests(unittest.TestCase):
             "none",
         )
 
-    @patch("hci_analyzer.gui.command_console.messagebox.askyesno")
-    def test_reset_send_requires_confirmation(self, ask_yes_no: Mock) -> None:
+    def test_quick_buttons_do_not_require_a_valid_selected_preview(self) -> None:
         window = object.__new__(CommandConsoleWindow)
-        window._current_definition = COMMAND_DEFINITIONS_BY_OPCODE[0x0C03]
-        window._root = Mock()
-        window._on_send = Mock()
-        window.get_parameter_values = Mock(return_value={})
-        ask_yes_no.return_value = False
+        window._connected = True
+        window._busy = False
+        window._preview_valid = False
+        window._selected_command_supported = None
+        window._command_support = {}
+        window._send_button = Mock()
+        window._quick_reset_button = Mock()
+        window._quick_test_end_button = Mock()
 
-        window._request_send()
+        window._update_send_state()
 
-        window._on_send.assert_not_called()
-        ask_yes_no.return_value = True
-        window._request_send()
-        window._on_send.assert_called_once_with({})
+        window._send_button.configure.assert_called_once_with(
+            state=tk.DISABLED
+        )
+        window._quick_reset_button.configure.assert_called_once_with(
+            state=tk.NORMAL
+        )
+        window._quick_test_end_button.configure.assert_called_once_with(
+            state=tk.NORMAL
+        )
 
+    def test_timeout_selection_is_disabled_only_while_busy(self) -> None:
+        window = object.__new__(CommandConsoleWindow)
+        window._connected = True
+        window._busy = False
+        window._preview_valid = True
+        window._selected_command_supported = None
+        window._command_support = {}
+        window._response_timeout_combo = Mock()
+        window._send_button = Mock()
+        window._quick_reset_button = Mock()
+        window._quick_test_end_button = Mock()
+
+        window.set_busy_state(True)
+        window._response_timeout_combo.configure.assert_called_with(
+            state=tk.DISABLED
+        )
+
+        window.set_busy_state(False)
+        window._response_timeout_combo.configure.assert_called_with(
+            state="readonly"
+        )
+
+    def test_mouse_wheel_scrolls_parameter_canvas_from_blank_area(self) -> None:
+        window = object.__new__(CommandConsoleWindow)
+        window._parameter_canvas = Mock()
+
+        result = window._scroll_parameter_canvas(
+            SimpleNamespace(num=None, delta=-120)
+        )
+
+        window._parameter_canvas.yview_scroll.assert_called_once_with(
+            1,
+            "units",
+        )
+        self.assertEqual(result, "break")
+
+    def test_linux_wheel_button_scrolls_parameter_canvas(self) -> None:
+        window = object.__new__(CommandConsoleWindow)
+        window._parameter_canvas = Mock()
+
+        window._scroll_parameter_canvas(SimpleNamespace(num=4, delta=0))
+
+        window._parameter_canvas.yview_scroll.assert_called_once_with(
+            -1,
+            "units",
+        )
 
 if __name__ == "__main__":
     unittest.main()

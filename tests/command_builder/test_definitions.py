@@ -5,6 +5,8 @@ import unittest
 from hci_analyzer.command_builder.definitions import (
     COMMAND_DEFINITIONS_BY_OPCODE,
     CONSOLE_COMMAND_DEFINITIONS,
+    QUICK_COMMAND_DEFINITIONS,
+    SELECTABLE_COMMAND_DEFINITIONS,
 )
 
 
@@ -34,10 +36,21 @@ class CommandDefinitionTests(unittest.TestCase):
                 for parameter in definition.parameters:
                     self.assertIsNotNone(parameter.default)
 
+    def test_reset_and_test_end_are_quick_commands_not_selectable(self) -> None:
+        self.assertEqual(
+            {item.opcode for item in QUICK_COMMAND_DEFINITIONS},
+            {0x0C03, 0x201F},
+        )
+        selectable_opcodes = {
+            item.opcode for item in SELECTABLE_COMMAND_DEFINITIONS
+        }
+        self.assertNotIn(0x0C03, selectable_opcodes)
+        self.assertNotIn(0x201F, selectable_opcodes)
+
     def test_command_order_starts_with_transmitter_then_receiver(self) -> None:
         command_order = list(
             dict.fromkeys(
-                definition.name for definition in CONSOLE_COMMAND_DEFINITIONS
+                definition.name for definition in SELECTABLE_COMMAND_DEFINITIONS
             )
         )
         self.assertEqual(
@@ -45,8 +58,6 @@ class CommandDefinitionTests(unittest.TestCase):
             [
                 "HCI_LE_Transmitter_Test",
                 "HCI_LE_Receiver_Test",
-                "HCI_LE_Test_End",
-                "HCI_Reset",
                 "HCI_Read_Local_Supported_Commands",
             ],
         )

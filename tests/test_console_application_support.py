@@ -2,7 +2,9 @@
 
 import unittest
 from datetime import datetime
+from unittest.mock import Mock
 
+from hci_analyzer.command_builder.encoder import HciCommandEncoder
 from hci_analyzer.console_application import HciCommandConsoleApplication
 from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
 from hci_analyzer.models import ParseResult
@@ -14,6 +16,8 @@ class _WindowStub:
         self.support: dict[int, bool] = {}
         self.values: dict[str, object] = {}
         self.on_form_shown = lambda _definition, _values: None
+        self.busy = False
+        self.response_timeout_seconds = 3.0
 
     def set_command_support(self, support: dict[int, bool]) -> None:
         self.support = dict(support)
@@ -24,8 +28,11 @@ class _WindowStub:
     def set_connected_state(self, _connected: bool) -> None:
         return None
 
-    def set_busy_state(self, _busy: bool) -> None:
-        return None
+    def set_busy_state(self, busy: bool) -> None:
+        self.busy = busy
+
+    def get_response_timeout_seconds(self) -> float:
+        return self.response_timeout_seconds
 
     def get_parameter_values(self) -> dict[str, object]:
         return dict(self.values)
@@ -89,6 +96,48 @@ class CommandConsoleSupportTests(unittest.TestCase):
 
         self.assertEqual(self.application._command_support, {})
         self.assertEqual(self.application._window.support, {})
+
+    def test_quick_reset_is_sent_without_changing_selected_command(self) -> None:
+        self.application._encoder = HciCommandEncoder()
+        self.application._transport = Mock()
+        selected = COMMAND_DEFINITIONS_BY_OPCODE[0x2034]
+        self.application._selected_definition = selected
+
+        self.application._send_quick_command(0x0C03)
+
+        self.application._transport.send.assert_called_once_with(
+            bytes.fromhex("01 03 0C 00"),
+            expected_opcode=0x0C03,
+            response_timeout_seconds=3.0,
+        )
+        self.assertIs(self.application._selected_definition, selected)
+        self.assertTrue(self.application._window.busy)
+
+    def test_quick_test_end_sends_parameterless_command(self) -> None:
+        self.application._encoder = HciCommandEncoder()
+        self.application._transport = Mock()
+
+        self.application._send_quick_command(0x201F)
+
+        self.application._transport.send.assert_called_once_with(
+            bytes.fromhex("01 1F 20 00"),
+            expected_opcode=0x201F,
+            response_timeout_seconds=3.0,
+        )
+        self.assertTrue(self.application._window.busy)
+
+    def test_selected_timeout_is_applied_immediately_to_next_send(self) -> None:
+        self.application._encoder = HciCommandEncoder()
+        self.application._transport = Mock()
+        self.application._window.response_timeout_seconds = 1.0
+
+        self.application._send_quick_command(0x0C03)
+
+        self.application._transport.send.assert_called_once_with(
+            bytes.fromhex("01 03 0C 00"),
+            expected_opcode=0x0C03,
+            response_timeout_seconds=1.0,
+        )
 
     def test_port_connection_events_do_not_reset_capability_result(self) -> None:
         self.application._command_support = {0x201D: False}

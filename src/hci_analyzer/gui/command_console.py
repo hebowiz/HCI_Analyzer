@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import scrolledtext, ttk
 from typing import Any, Mapping
 
 from hci_analyzer.command_builder.definitions import (
@@ -16,7 +16,9 @@ from hci_analyzer.config import (
     COMMAND_CONSOLE_DEFAULT_WINDOW_SIZE,
     COMMAND_CONSOLE_MINIMUM_WINDOW_SIZE,
     DEFAULT_BAUD_RATE,
+    DEFAULT_RESPONSE_TIMEOUT_SECONDS,
     SUPPORTED_BAUD_RATES,
+    SUPPORTED_RESPONSE_TIMEOUT_SECONDS,
 )
 from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
@@ -99,6 +101,7 @@ class CommandConsoleWindow:
         on_command_selected: Callable[[int], None],
         on_preview: Callable[[Mapping[str, Any]], None],
         on_send: Callable[[Mapping[str, Any]], None],
+        on_quick_send: Callable[[int], None],
         on_clear_log: Callable[[], None],
         on_reset: Callable[[], None] | None = None,
         on_reset_command_support: Callable[[], None] | None = None,
@@ -108,6 +111,7 @@ class CommandConsoleWindow:
         self._on_command_selected = on_command_selected
         self._on_preview = on_preview
         self._on_send = on_send
+        self._on_quick_send = on_quick_send
         self._on_clear_log = on_clear_log
         self._on_reset = on_reset or (lambda: None)
         self._on_reset_command_support = on_reset_command_support or (lambda: None)
@@ -143,6 +147,9 @@ class CommandConsoleWindow:
 
         self._port_variable = tk.StringVar()
         self._baud_variable = tk.StringVar(value=str(DEFAULT_BAUD_RATE))
+        self._response_timeout_variable = tk.StringVar(
+            value=str(DEFAULT_RESPONSE_TIMEOUT_SECONDS)
+        )
         self._status_variable = tk.StringVar(value="未接続")
         self._category_variable = tk.StringVar()
         self._command_variable = tk.StringVar()
@@ -178,6 +185,15 @@ class CommandConsoleWindow:
             baud_rate if baud_rate in SUPPORTED_BAUD_RATES else DEFAULT_BAUD_RATE
         )
         self._baud_variable.set(str(selected))
+
+    def set_response_timeout_seconds(self, timeout_seconds: int) -> None:
+        """Set the response timeout, falling back to the default if invalid."""
+        selected = (
+            timeout_seconds
+            if timeout_seconds in SUPPORTED_RESPONSE_TIMEOUT_SECONDS
+            else DEFAULT_RESPONSE_TIMEOUT_SECONDS
+        )
+        self._response_timeout_variable.set(str(selected))
 
     def set_command_definitions(
         self, definitions: tuple[ConsoleCommandDefinition, ...]
@@ -227,6 +243,10 @@ class CommandConsoleWindow:
     def get_connection_settings(self) -> tuple[str, int]:
         """Return the selected port and baud rate."""
         return self._port_variable.get().strip(), int(self._baud_variable.get())
+
+    def get_response_timeout_seconds(self) -> float:
+        """Return the response timeout selected for the next command."""
+        return float(self._response_timeout_variable.get())
 
     def get_parameter_values(self) -> dict[str, Any]:
         """Return all values currently entered in the parameter form."""
@@ -318,6 +338,9 @@ class CommandConsoleWindow:
     def set_busy_state(self, busy: bool) -> None:
         """Disable command transmission while a response is pending."""
         self._busy = busy
+        self._response_timeout_combo.configure(
+            state=tk.DISABLED if busy else "readonly"
+        )
         self._update_send_state()
 
     def set_command_support(self, support: Mapping[int, bool]) -> None:
@@ -371,7 +394,7 @@ class CommandConsoleWindow:
             connection,
             textvariable=self._port_variable,
             state="readonly",
-            width=24,
+            width=14,
         )
         self._port_combo.grid(row=0, column=1, sticky="w", pady=8)
         ttk.Label(connection, text="Baud").grid(row=0, column=2, padx=(12, 4), pady=8)
@@ -404,6 +427,22 @@ class CommandConsoleWindow:
             text="コマンド対応初期化",
             command=self._on_reset_command_support,
         ).grid(row=0, column=8, padx=(8, 8), pady=8)
+        ttk.Label(connection, text="Timeout").grid(
+            row=0, column=9, padx=(8, 4), pady=8
+        )
+        self._response_timeout_combo = ttk.Combobox(
+            connection,
+            textvariable=self._response_timeout_variable,
+            values=tuple(str(value) for value in SUPPORTED_RESPONSE_TIMEOUT_SECONDS),
+            state="readonly",
+            width=4,
+        )
+        self._response_timeout_combo.grid(
+            row=0, column=10, padx=(0, 4), pady=8
+        )
+        ttk.Label(connection, text="s").grid(
+            row=0, column=11, padx=(0, 8), pady=8
+        )
 
         command_area = ttk.Frame(self._root)
         command_area.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
@@ -471,6 +510,10 @@ class CommandConsoleWindow:
         self._parameter_canvas.configure(yscrollcommand=scrollbar.set)
         self._parameter_canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
+        for widget in (self._parameter_canvas, self._parameter_frame):
+            widget.bind("<MouseWheel>", self._scroll_parameter_canvas)
+            widget.bind("<Button-4>", self._scroll_parameter_canvas)
+            widget.bind("<Button-5>", self._scroll_parameter_canvas)
 
         preview = ttk.LabelFrame(self._root, text="Packet Preview")
         preview.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
@@ -494,6 +537,22 @@ class CommandConsoleWindow:
         ttk.Button(
             preview_actions, text="初期値", command=self._on_reset
         ).grid(row=0, column=1, padx=4)
+        self._quick_reset_button = ttk.Button(
+            preview_actions,
+            text="HCI_Reset",
+            command=lambda: self._on_quick_send(0x0C03),
+            state=tk.DISABLED,
+            width=14,
+        )
+        self._quick_reset_button.grid(row=0, column=2, padx=(12, 4))
+        self._quick_test_end_button = ttk.Button(
+            preview_actions,
+            text="HCI_Test_End",
+            command=lambda: self._on_quick_send(0x201F),
+            state=tk.DISABLED,
+            width=16,
+        )
+        self._quick_test_end_button.grid(row=0, column=3, padx=4)
         self._send_button = ttk.Button(
             preview_actions,
             text="コマンド送信",
@@ -501,7 +560,7 @@ class CommandConsoleWindow:
             state=tk.DISABLED,
             width=18,
         )
-        self._send_button.grid(row=0, column=2, padx=(12, 0))
+        self._send_button.grid(row=0, column=4, padx=(12, 0))
 
         log_group = ttk.LabelFrame(self._root, text="送受信ログ")
         log_group.grid(row=3, column=0, sticky="nsew", padx=10, pady=(5, 10))
@@ -741,18 +800,24 @@ class CommandConsoleWindow:
         power_widget.configure(state=tk.NORMAL if numeric_mode else tk.DISABLED)
 
     def _request_send(self) -> None:
-        if (
-            self._current_definition is not None
-            and self._current_definition.opcode == 0x0C03
-            and not messagebox.askyesno(
-                "HCI_Resetの送信確認",
-                "Controllerの現在の状態が失われ、standby状態へ戻ります。\n"
-                "HCI_Resetを送信しますか？",
-                parent=self._root,
-            )
-        ):
-            return
         self._on_send(self.get_parameter_values())
+
+    def _scroll_parameter_canvas(self, event: tk.Event) -> str:
+        """Scroll parameter content when the wheel is used over its blank area."""
+        button_number = getattr(event, "num", None)
+        if button_number == 4:
+            units = -1
+        elif button_number == 5:
+            units = 1
+        else:
+            delta = int(getattr(event, "delta", 0))
+            if delta == 0:
+                return "break"
+            units = -max(1, abs(delta) // 120) if delta > 0 else max(
+                1, abs(delta) // 120
+            )
+        self._parameter_canvas.yview_scroll(units, "units")
+        return "break"
 
     def _update_send_state(self) -> None:
         enabled = (
@@ -762,6 +827,23 @@ class CommandConsoleWindow:
             and self._selected_command_supported is not False
         )
         self._send_button.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+        quick_enabled = self._connected and not self._busy
+        self._quick_reset_button.configure(
+            state=(
+                tk.NORMAL
+                if quick_enabled
+                and self._command_support.get(0x0C03) is not False
+                else tk.DISABLED
+            )
+        )
+        self._quick_test_end_button.configure(
+            state=(
+                tk.NORMAL
+                if quick_enabled
+                and self._command_support.get(0x201F) is not False
+                else tk.DISABLED
+            )
+        )
 
     def _update_support_text(self) -> None:
         if self._selected_command_supported is True:

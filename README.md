@@ -52,10 +52,12 @@ python analyzer.py
 
 Command Consoleでは、GUIからLE RF PHY Testコマンドとパラメーターを選択し、
 UART HCI Commandを送信して応答Eventを確認できます。
-Controller & BasebandカテゴリからHCI Resetを送信できます。
+Packet Preview欄のクイックボタンからHCI ResetとHCI LE Test Endを
+コマンド選択とは独立して1クリック送信できます。
 Informational ParametersカテゴリからSupported Commands v1/v2も送信できます。
 両アプリとも終了時のウィンドウサイズを記憶し、次回起動時に復元します。
 Analyzerはポート1・ポート2・共通ボーレートも終了時に記憶します。
+Command Consoleはポート・ボーレート・応答タイムアウトも記憶します。
 保存したポートが次回起動時に存在しない場合は、利用可能なポートを選択します。
 Analyzerで「解析終了」を押すと、直近のJSONLログからHostとController間の
 シーケンス図を生成し、新しいMarkdownプレビューウィンドウに表示します。
