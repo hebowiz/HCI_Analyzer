@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, ttk
 from typing import Any, Mapping
 
 from hci_analyzer.command_builder.definitions import (
@@ -741,6 +741,17 @@ class CommandConsoleWindow:
         power_widget.configure(state=tk.NORMAL if numeric_mode else tk.DISABLED)
 
     def _request_send(self) -> None:
+        if (
+            self._current_definition is not None
+            and self._current_definition.opcode == 0x0C03
+            and not messagebox.askyesno(
+                "HCI_Resetの送信確認",
+                "Controllerの現在の状態が失われ、standby状態へ戻ります。\n"
+                "HCI_Resetを送信しますか？",
+                parent=self._root,
+            )
+        ):
+            return
         self._on_send(self.get_parameter_values())
 
     def _update_send_state(self) -> None:

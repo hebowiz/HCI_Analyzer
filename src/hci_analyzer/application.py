@@ -16,6 +16,7 @@ from hci_analyzer.models import (
     TrafficDirection,
 )
 from hci_analyzer.parser.facade import HciParser
+from hci_analyzer.presentation.text import format_exception_for_log
 from hci_analyzer.serial.monitor import DualSerialMonitor
 from hci_analyzer.serial.ports import list_serial_ports
 from hci_analyzer.sequence.diagram import load_hci_sequence
@@ -197,6 +198,10 @@ class HciAnalyzerApplication:
                 False,
                 None,
                 b"",
-                error=ParseError(code, str(exc), {"exception": type(exc).__name__}),
+                error=ParseError(
+                    code,
+                    format_exception_for_log(exc),
+                    {"exception": type(exc).__name__},
+                ),
             ),
         )

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from hci_analyzer.models import LogRecord, LogSession
+from hci_analyzer.presentation.text import ascii_safe_text
 
 
 class JsonlLogger:
@@ -73,9 +74,11 @@ class JsonlLogger:
         if isinstance(value, datetime):
             return value.isoformat(timespec="milliseconds")
         if isinstance(value, Path):
-            return str(value)
+            return ascii_safe_text(value)
+        if isinstance(value, str):
+            return ascii_safe_text(value)
         if isinstance(value, Enum):
-            return value.value
+            return cls._to_json_value(value.value)
         if is_dataclass(value):
             return {
                 key: cls._to_json_value(item)
@@ -83,7 +86,8 @@ class JsonlLogger:
             }
         if isinstance(value, dict):
             return {
-                str(key): cls._to_json_value(item) for key, item in value.items()
+                ascii_safe_text(key): cls._to_json_value(item)
+                for key, item in value.items()
             }
         if isinstance(value, (list, tuple)):
             return [cls._to_json_value(item) for item in value]

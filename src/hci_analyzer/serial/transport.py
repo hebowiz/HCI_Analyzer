@@ -13,6 +13,7 @@ import serial
 from hci_analyzer.models import ParseResult, SerialPortConfig
 from hci_analyzer.parser.facade import HciParser
 from hci_analyzer.parser.h4_stream import H4StreamDecoder
+from hci_analyzer.presentation.text import format_exception_for_log
 
 
 class TransportEventKind(str, Enum):
@@ -85,26 +86,18 @@ class HciSerialTransport:
             if self._connected:
                 raise RuntimeError("Serial transport is already connected")
 
-        try:
-            port = serial.Serial(
-                port=config.port,
-                baudrate=config.baud_rate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=0.05,
-                write_timeout=1.0,
-                xonxoff=False,
-                rtscts=False,
-                dsrdtr=False,
-            )
-        except (serial.SerialException, OSError) as exc:
-            self._emit(
-                TransportEventKind.ERROR,
-                source=config.label,
-                message=f"Failed to open {config.port}: {exc}",
-            )
-            raise
+        port = serial.Serial(
+            port=config.port,
+            baudrate=config.baud_rate,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=0.05,
+            write_timeout=1.0,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+        )
 
         self._decoder.reset()
         self._stop_event.clear()
@@ -187,7 +180,10 @@ class HciSerialTransport:
             self._emit(
                 TransportEventKind.ERROR,
                 source=self._source,
-                message=f"Serial transport error: {exc}",
+                message=(
+                    "Serial transport error: "
+                    f"{format_exception_for_log(exc)}"
+                ),
             )
         finally:
             pending = self._take_pending()

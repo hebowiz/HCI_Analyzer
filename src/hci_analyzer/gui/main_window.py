@@ -13,6 +13,7 @@ from hci_analyzer.config import (
     SUPPORTED_BAUD_RATES,
 )
 from hci_analyzer.models import LogRecord
+from hci_analyzer.presentation.text import ascii_safe_text
 from hci_analyzer.sequence.diagram import HciSequenceDiagram
 from hci_analyzer.gui.sequence_window import SequenceDiagramWindow
 
@@ -117,7 +118,8 @@ class MainWindow:
             lines.append(record.message)
 
         self._log_text.configure(state=tk.NORMAL)
-        self._log_text.insert(tk.END, "\n".join(lines) + "\n")
+        safe_lines = [ascii_safe_text(line) for line in lines]
+        self._log_text.insert(tk.END, "\n".join(safe_lines) + "\n")
         self._log_text.see(tk.END)
         self._log_text.configure(state=tk.DISABLED)
 

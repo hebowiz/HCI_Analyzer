@@ -130,6 +130,7 @@ def decode_supported_commands(data: bytes) -> dict[str, object]:
             by_scope.setdefault(scope, []).append(command)
 
     application_names = (
+        "HCI_Reset",
         "HCI_LE_CS_Test",
         "HCI_LE_CS_Test_End",
         "HCI_LE_Receiver_Test[v1]",

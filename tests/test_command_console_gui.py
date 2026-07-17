@@ -1,7 +1,9 @@
 """Logic tests for Command Console selection defaults."""
 
 import unittest
+from unittest.mock import Mock, patch
 
+from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
 from hci_analyzer.gui.command_console import CommandConsoleWindow
 
 
@@ -32,6 +34,22 @@ class CommandConsoleWindowTests(unittest.TestCase):
             ),
             "none",
         )
+
+    @patch("hci_analyzer.gui.command_console.messagebox.askyesno")
+    def test_reset_send_requires_confirmation(self, ask_yes_no: Mock) -> None:
+        window = object.__new__(CommandConsoleWindow)
+        window._current_definition = COMMAND_DEFINITIONS_BY_OPCODE[0x0C03]
+        window._root = Mock()
+        window._on_send = Mock()
+        window.get_parameter_values = Mock(return_value={})
+        ask_yes_no.return_value = False
+
+        window._request_send()
+
+        window._on_send.assert_not_called()
+        ask_yes_no.return_value = True
+        window._request_send()
+        window._on_send.assert_called_once_with({})
 
 
 if __name__ == "__main__":

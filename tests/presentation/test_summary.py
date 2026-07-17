@@ -42,6 +42,14 @@ class HciSummaryTests(unittest.TestCase):
         self.assertIn("RX Channel             : 19 (2440 MHz)", summary)
         self.assertIn("Modulation Index       : standard modulation index (0x00)", summary)
 
+    def test_reset_summary(self) -> None:
+        result = self.parser.parse_hex_string("01 03 0C 00")
+
+        summary = "\n".join(format_parse_summary(result))
+
+        self.assertIn("Command                : HCI_Reset", summary)
+        self.assertIn("Purpose                : Reset the Controller to standby state", summary)
+
     def test_packet_report_summary_includes_response_time(self) -> None:
         result = self.parser.parse_hex_string(
             "04 0E 06 01 1F 20 00 34 12"

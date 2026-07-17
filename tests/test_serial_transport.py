@@ -5,6 +5,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+import serial
+
 from hci_analyzer.models import SerialPortConfig
 from hci_analyzer.serial.transport import HciSerialTransport, TransportEventKind
 
@@ -46,6 +48,23 @@ class _FakeSerial:
 
 
 class HciSerialTransportTests(unittest.TestCase):
+    def test_connect_failure_is_reported_only_by_application_layer(self) -> None:
+        events = []
+        error = serial.SerialException(
+            "OSError(22, 'パラメーターが間違っています。', None, 87)"
+        )
+        with patch(
+            "hci_analyzer.serial.transport.serial.Serial",
+            side_effect=error,
+        ):
+            transport = HciSerialTransport(events.append)
+            with self.assertRaises(serial.SerialException):
+                transport.connect(
+                    SerialPortConfig("COM1", 115200, "Console:COM1")
+                )
+
+        self.assertEqual(events, [])
+
     def test_command_complete_is_linked_to_transaction(self) -> None:
         events = []
         fake = _FakeSerial(response=bytes.fromhex("04 0E 04 01 34 20 00"))

@@ -17,6 +17,7 @@ from hci_analyzer.models import (
 )
 from hci_analyzer.parser.facade import HciParser
 from hci_analyzer.parser.h4_stream import H4StreamDecoder
+from hci_analyzer.presentation.text import format_exception_for_log
 
 RecordCallback = Callable[[LogRecord], None]
 
@@ -102,7 +103,7 @@ class SerialPortWorker:
                         b"",
                         error=ParseError(
                             "SERIAL_READ_ERROR",
-                            str(exc),
+                            format_exception_for_log(exc),
                             {"port": self._config.port},
                         ),
                     ),

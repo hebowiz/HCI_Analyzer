@@ -21,6 +21,7 @@ from hci_analyzer.gui.command_console import CommandConsoleWindow
 from hci_analyzer.models import ParseResult, SerialPortConfig
 from hci_analyzer.parser.facade import HciParser
 from hci_analyzer.parser.supported_commands import support_for_commands
+from hci_analyzer.presentation.text import format_exception_for_log
 from hci_analyzer.serial.ports import list_serial_ports
 from hci_analyzer.serial.transport import (
     HciSerialTransport,
@@ -74,7 +75,9 @@ class HciCommandConsoleApplication:
         try:
             self._window.set_serial_ports(list_serial_ports(), preferred_port)
         except Exception as exc:
-            self._append_application_error(f"Port enumeration failed: {exc}")
+            self._append_application_error(
+                f"Port enumeration failed: {format_exception_for_log(exc)}"
+            )
 
     def _select_command(self, opcode: int) -> None:
         self._cache_current_values()
@@ -110,6 +113,7 @@ class HciCommandConsoleApplication:
         self._window.show_packet_preview(encoded.frame)
 
     def _connect(self) -> None:
+        port = ""
         try:
             port, baud_rate = self._window.get_connection_settings()
             if not port:
@@ -118,7 +122,10 @@ class HciCommandConsoleApplication:
                 SerialPortConfig(port, baud_rate, f"Console:{port}")
             )
         except Exception as exc:
-            self._append_application_error(f"Connection failed: {exc}")
+            target = port or "no port selected"
+            self._append_application_error(
+                f"Connection failed: {target}; {format_exception_for_log(exc)}"
+            )
 
     def _disconnect(self) -> None:
         self._transport.disconnect()
@@ -143,7 +150,9 @@ class HciCommandConsoleApplication:
                 response_timeout_seconds=3.0,
             )
         except Exception as exc:
-            self._append_application_error(f"Send request failed: {exc}")
+            self._append_application_error(
+                f"Send request failed: {format_exception_for_log(exc)}"
+            )
             return
         self._window.set_busy_state(True)
 
@@ -288,7 +297,9 @@ class HciCommandConsoleApplication:
                 )
             )
         except Exception as exc:
-            self._append_application_error(f"Settings save failed: {exc}")
+            self._append_application_error(
+                f"Settings save failed: {format_exception_for_log(exc)}"
+            )
         self._transport.disconnect()
         self._window.destroy()
 

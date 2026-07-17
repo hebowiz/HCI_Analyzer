@@ -121,7 +121,15 @@ class HciEventParser:
                     **support_report,
                 }
             )
-        else:
+        elif opcode in (
+            0x201D,
+            0x2033,
+            0x204F,
+            0x201E,
+            0x2034,
+            0x2050,
+            0x207B,
+        ):
             decoded["rf_test_event"] = "LE_Status"
         return ParseResult(True, "HCI_Event", frame, decoded=decoded)
 

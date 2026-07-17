@@ -117,6 +117,6 @@ class HciCommandEncoder:
                     power &= 0xFF
                 parameters += bytes([power])
             return parameters
-        if opcode in (0x201F, 0x1002, 0x1010):
+        if opcode in (0x0C03, 0x201F, 0x1002, 0x1010):
             return b""
         raise ValueError(f"Unsupported command opcode 0x{opcode:04X}")

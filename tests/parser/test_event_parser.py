@@ -26,6 +26,14 @@ class HciEventParserTests(unittest.TestCase):
         self.assertEqual(result.decoded["rf_test_event"], "LE_Packet_Report")
         self.assertEqual(result.decoded["num_packets"], 0x1234)
 
+    def test_reset_command_complete_is_not_le_status(self) -> None:
+        result = self.parser.parse_hex_string("04 0E 04 01 03 0C 00")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.decoded["command_name"], "HCI_Reset")
+        self.assertEqual(result.decoded["status"], 0)
+        self.assertNotIn("rf_test_event", result.decoded)
+
     def test_command_complete_unknown_opcode_is_error(self) -> None:
         result = self.parser.parse_hex_string("04 0E 04 01 01 20 00")
 
@@ -72,6 +80,7 @@ class HciEventParserTests(unittest.TestCase):
 
     def test_supported_commands_v1_response(self) -> None:
         supported = bytearray(64)
+        supported[5] = 1 << 7
         supported[28] = (1 << 4) | (1 << 5) | (1 << 6)
         supported[36] = 1 << 0
         frame = (
@@ -88,12 +97,13 @@ class HciEventParserTests(unittest.TestCase):
         )
         self.assertEqual(result.decoded["supported_commands_length"], 64)
         support = result.decoded["relevant_command_support"]
+        self.assertTrue(support["HCI_Reset"])
         self.assertTrue(support["HCI_LE_Receiver_Test[v1]"])
         self.assertTrue(support["HCI_LE_Transmitter_Test[v1]"])
         self.assertTrue(support["HCI_LE_Test_End"])
         self.assertTrue(support["HCI_LE_Transmitter_Test[v2]"])
         self.assertFalse(support["HCI_LE_Transmitter_Test[v4]"])
-        self.assertEqual(result.decoded["set_bit_count"], 4)
+        self.assertEqual(result.decoded["set_bit_count"], 5)
         self.assertEqual(
             result.decoded["supported_commands_by_scope"]["PHY_TEST_CORE"],
             [

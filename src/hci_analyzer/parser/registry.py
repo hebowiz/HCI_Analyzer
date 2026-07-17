@@ -19,6 +19,7 @@ class CommandDefinition:
 
 
 COMMAND_DEFINITIONS: Final[dict[int, CommandDefinition]] = {
+    0x0C03: CommandDefinition(0x0C03, "HCI_Reset", None, 0),
     0x201D: CommandDefinition(0x201D, "HCI_LE_Receiver_Test", "v1", 1),
     0x2033: CommandDefinition(0x2033, "HCI_LE_Receiver_Test", "v2", 3),
     0x204F: CommandDefinition(
@@ -54,12 +55,14 @@ COMMAND_DEFINITIONS: Final[dict[int, CommandDefinition]] = {
 }
 
 COMMAND_COMPLETE_RETURN_LENGTHS: Final[dict[int, int]] = {
+    0x0C03: 1,
     0x201F: 3,
     0x1002: 65,
     0x1010: 252,
 }
 
 SUPPORTED_COMMAND_BITS: Final[dict[str, tuple[int, int]]] = {
+    "HCI_Reset": (5, 7),
     "HCI_LE_CS_Test": (23, 3),
     "HCI_LE_CS_Test_End": (23, 4),
     "HCI_LE_Receiver_Test[v1]": (28, 4),

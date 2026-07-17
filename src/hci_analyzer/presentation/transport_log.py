@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from hci_analyzer.presentation.summary import format_parse_summary
+from hci_analyzer.presentation.text import ascii_safe_text
 from hci_analyzer.serial.transport import TransportEvent
 
 
@@ -43,4 +44,4 @@ def format_transport_event(event: TransportEvent) -> list[str]:
         )
     if event.message:
         lines.append(event.message)
-    return lines
+    return [ascii_safe_text(line) for line in lines]

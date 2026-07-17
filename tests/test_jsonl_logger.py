@@ -46,7 +46,31 @@ class JsonlLoggerTests(unittest.TestCase):
                 payload["result"]["decoded"]["command_name"], "HCI_LE_Test_End"
             )
 
+    def test_jsonl_replaces_non_ascii_log_text(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            logger = JsonlLogger(Path(directory))
+            session = logger.start_session()
+            logger.write(
+                LogRecord(
+                    timestamp=datetime.now().astimezone(),
+                    source="Application",
+                    direction=TrafficDirection.UNKNOWN,
+                    kind=RecordKind.ERROR,
+                    message="パラメーターが間違っています。",
+                )
+            )
+            logger.close()
+
+            text = session.file_path.read_text(encoding="utf-8")
+
+        self.assertTrue(text.isascii())
+        self.assertIn("[localized message omitted]", text)
+        self.assertNotIn(r"\u30d1", text)
+        self.assertEqual(
+            json.loads(text)["message"],
+            "[localized message omitted]",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -67,6 +67,8 @@ def _format_command(decoded: dict[str, Any]) -> list[str]:
         lines.extend(_format_receiver_parameters(params, name))
     elif name == "HCI_LE_Test_End":
         lines.append(_field("Purpose", "End the current LE Direct Test Mode test"))
+    elif name == "HCI_Reset":
+        lines.append(_field("Purpose", "Reset the Controller to standby state"))
     elif name.startswith("HCI_Read_Local_Supported_Commands"):
         length = 64 if "[v1]" in name else 251
         lines.append(

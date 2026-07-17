@@ -57,6 +57,7 @@ class CommandConsoleSupportTests(unittest.TestCase):
 
     def test_successful_capability_response_updates_console_commands(self) -> None:
         supported = bytearray(64)
+        supported[5] = 1 << 7
         supported[28] = (1 << 4) | (1 << 6)
         parsed = ParseResult(
             True,
@@ -72,6 +73,7 @@ class CommandConsoleSupportTests(unittest.TestCase):
         self.application._apply_supported_commands(parsed)
 
         self.assertTrue(self.application._command_support[0x201D])
+        self.assertTrue(self.application._command_support[0x0C03])
         self.assertFalse(self.application._command_support[0x201E])
         self.assertTrue(self.application._command_support[0x201F])
         self.assertTrue(self.application._command_support[0x1002])

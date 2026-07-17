@@ -8,6 +8,7 @@ Command/Eventを解析するPython/Tkinterアプリです。
 - `HCI_LE_Receiver_Test` v1～v3
 - `HCI_LE_Transmitter_Test` v1～v4
 - `HCI_LE_Test_End`
+- `HCI_Reset`
 - `HCI_Read_Local_Supported_Commands` v1/v2
 - `HCI_Command_Complete`（`LE_Status` / `LE_Packet_Report`）
 - `HCI_Command_Status`
@@ -51,6 +52,7 @@ python analyzer.py
 
 Command Consoleでは、GUIからLE RF PHY Testコマンドとパラメーターを選択し、
 UART HCI Commandを送信して応答Eventを確認できます。
+Controller & BasebandカテゴリからHCI Resetを送信できます。
 Informational ParametersカテゴリからSupported Commands v1/v2も送信できます。
 両アプリとも終了時のウィンドウサイズを記憶し、次回起動時に復元します。
 Analyzerはポート1・ポート2・共通ボーレートも終了時に記憶します。

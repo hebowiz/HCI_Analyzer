@@ -37,6 +37,22 @@ class TransportLogFormattingTests(unittest.TestCase):
             lines,
         )
 
+    def test_localized_transport_message_is_replaced_with_readable_marker(self) -> None:
+        event = TransportEvent(
+            timestamp=datetime(2026, 7, 16, 22, 40, tzinfo=timezone.utc),
+            kind=TransportEventKind.ERROR,
+            source="Console:COM1",
+            message="OSError: パラメーターが間違っています。",
+        )
+
+        lines = format_transport_event(event)
+
+        output = "\n".join(lines)
+        self.assertTrue(output.isascii())
+        self.assertIn("[localized message omitted]", output)
+        self.assertNotIn(r"\u30d1", output)
+        self.assertNotIn("パラメーター", output)
+
 
 if __name__ == "__main__":
     unittest.main()

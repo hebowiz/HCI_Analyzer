@@ -77,6 +77,7 @@ class ConsoleCommandDefinition:
 
 
 LE_RF_PHY_TEST = "LE RF PHY Test"
+CONTROLLER_AND_BASEBAND = "Controller & Baseband"
 INFORMATIONAL_PARAMETERS = "Informational Parameters"
 
 CHANNEL_DEFAULT = 19
@@ -287,6 +288,13 @@ CONSOLE_COMMAND_DEFINITIONS: tuple[ConsoleCommandDefinition, ...] = (
         "HCI_LE_Test_End",
         None,
         LE_RF_PHY_TEST,
+        (),
+    ),
+    ConsoleCommandDefinition(
+        0x0C03,
+        "HCI_Reset",
+        None,
+        CONTROLLER_AND_BASEBAND,
         (),
     ),
     ConsoleCommandDefinition(

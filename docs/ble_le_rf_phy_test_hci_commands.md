@@ -11,6 +11,7 @@
   - Vol 4, Part E, Section 5.4.1: HCI Command packet
   - Vol 4, Part E, Section 5.4.4: HCI Event packet
   - Vol 4, Part E, Section 6.27: Supported Commands bit field
+  - Vol 4, Part E, Section 7.3.2: HCI_Reset command
   - Vol 4, Part E, Section 7.4.2: HCI_Read_Local_Supported_Commands command
   - Vol 4, Part E, Section 7.7.14: HCI_Command_Complete event
   - Vol 4, Part E, Section 7.7.15: HCI_Command_Status event
@@ -57,9 +58,9 @@ UART HCI を使う場合、シリアル上では HCI Command packet indicator `0
 以下は Core Specification の RF Test command 定義そのものではありません。解析器では「任意に出現しうるもの」として扱うのが安全です。
 
 - DUTをテストモードへ入れる vendor-specific command
-- UARTボーレート設定、RTS/CTS、リセット制御
-- OSやベンダードライバが送る初期化コマンド
-- `HCI_Reset`、`HCI_Read_Local_Version_Information` などの補助的な問い合わせ
+- UARTボーレート設定、RTS/CTS、ハードウェアリセット制御
+- OSやベンダードライバが決定する初期化シーケンス
+- `HCI_Reset`、`HCI_Read_Local_Version_Information` などの標準補助コマンドを使用するタイミング
 - vendor-specific event `0xFF`
 
 ---
@@ -129,6 +130,7 @@ hci_transport:
     opcode_format: "Opcode = (OGF << 10) | OCF"
     le_controller_ogf: 0x08
     informational_parameters_ogf: 0x04
+    controller_and_baseband_ogf: 0x03
 
 commands:
   - name: HCI_LE_Receiver_Test
@@ -274,6 +276,22 @@ commands:
         parameters: []
         immediate_response: HCI_Command_Status
         completion_event: HCI_LE_CS_Test_End_Complete
+
+  - name: HCI_Reset
+    category: Controller_and_Baseband
+    purpose: controller_initialization_or_recovery
+    versions:
+      - version: none
+        ogf: 0x03
+        ocf: 0x0003
+        opcode: 0x0C03
+        uart_prefix: "01 03 0C"
+        parameter_total_length: 0
+        parameters: []
+        response: HCI_Command_Complete_Status
+        supported_commands:
+          octet: 5
+          bit: 7
 
   - name: HCI_Read_Local_Supported_Commands
     category: Informational_Parameters
@@ -996,6 +1014,68 @@ def parse_hci_uart_event(frame: bytes) -> dict:
 
 ---
 
+### 8.6 補助コマンド: HCI_Reset
+
+参照: Bluetooth Core Specification v6.3 Vol 4, Part E, Section 7.3.2
+
+目的: Controllerをリセットし、Link Manager / Baseband / Link Layerの状態を初期化する。LE RF PHY試験そのものの開始・終了コマンドではないが、テスト前のController初期化、異常状態からの復帰、HCI analyzerの初期シーケンス解析で出現しやすい。
+
+`HCI_Reset` は Controller and Baseband command group のコマンドである。したがって OGF は `0x03`。
+
+Opcode 計算:
+
+~~~text
+Opcode = (OGF << 10) | OCF
+       = (0x03 << 10) | 0x0003
+       = 0x0C03
+~~~
+
+UART HCI byte template:
+
+~~~text
+01 03 0C 00
+~~~
+
+内訳:
+
+~~~text
+01        HCI Command packet indicator
+03 0C     Opcode = 0x0C03 = HCI_Reset
+00        Parameter_Total_Length = 0
+~~~
+
+応答:
+
+~~~text
+04 0E 04  Num_HCI_Command_Packets  03 0C  Status
+~~~
+
+成功例:
+
+~~~text
+04 0E 04  01 03 0C 00
+~~~
+
+| Field | Size | Value | 説明 |
+|---|---:|---|---|
+| `Status` | 1 | `0x00` | `HCI_Reset` command succeeded, was received and will be executed |
+| `Status` | 1 | `0x01`-`0xFF` | command failed。Controller Error Codesを参照 |
+
+仕様書に明記されている事項:
+- `HCI_Reset` は、BR/EDR ControllerではControllerとLink Managerを、LE ControllerではLink Layerをリセットする。
+- BR/EDRとLEの両方をサポートするControllerでは、Link Manager、Baseband、Link Layerをリセットする。
+- HCI transport layerには影響しない。
+- リセット完了後、現在のoperational stateは失われ、Controllerはstandby modeに入り、仕様でdefault valueが定義されているパラメータはdefault valueへ戻る。
+- Hostは `HCI_Reset` に対応する `HCI_Command_Complete` eventを受信するまで、追加のHCI commandを送ってはならない。
+- `HCI_Reset` が必ずhardware resetを行うとは限らない。
+
+implementation specific な事項:
+- `HCI_Reset` がhardware resetを行うかどうかは implementation defined。
+
+Supported Commandsでの確認:
+- `HCI_Read_Local_Supported_Commands` で対応状況を確認する場合、`HCI_Reset` は `Supported_Commands` octet 5 bit 7で判定する。
+
+---
 
 ## 9. Capability query: HCI_Read_Local_Supported_Commands
 
@@ -2012,7 +2092,7 @@ HCI_LE_Transmitter_Test [v4] -> OCF 0x007B -> Opcode 0x207B -> 01 7B 20 ...
 
 | 種類 | 例 | 扱い |
 |---|---|---|
-| Controller初期化 | `HCI_Reset`, `HCI_Read_Local_Version_Information` | テスター/ドライバ依存 |
+| Controller初期化 | `HCI_Reset`, `HCI_Read_Local_Version_Information` | `HCI_Reset` は本資料で標準補助コマンドとして定義。その他はテスター/ドライバ依存 |
 | Capability確認 | `HCI_Read_Local_Supported_Commands`, `HCI_LE_Read_Local_Supported_Features_Page_0` | `HCI_Read_Local_Supported_Commands` は本資料で標準補助コマンドとして定義。その他は必要に応じて追加 |
 | 通常接続PHY制御 | `HCI_LE_Set_PHY`, `HCI_LE_Read_PHY` | 接続中PHY制御。Direct Test Mode commandではない |
 | Vendor-specific | OGF `0x3F`, Event `0xFF` | vendor実装依存 |
@@ -2038,3 +2118,4 @@ HCI_LE_Transmitter_Test [v4] -> OCF 0x007B -> Opcode 0x207B -> 01 7B 20 ...
 | `01 96 20 00` | `0x2096` | `HCI_LE_CS_Test_End` | `0` |
 | `01 02 10 00` | `0x1002` | `HCI_Read_Local_Supported_Commands [v1]` | `0` |
 | `01 10 10 00` | `0x1010` | `HCI_Read_Local_Supported_Commands [v2]` | `0` |
+| `01 03 0C 00` | `0x0C03` | `HCI_Reset` | `0` |
