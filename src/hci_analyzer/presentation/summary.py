@@ -44,9 +44,23 @@ def format_parse_summary(
             response_time_ms=response_time_ms,
             iq_sample_preview_limit=iq_sample_preview_limit,
         )
+    if result.packet_type == "RACE":
+        return _format_race(result.decoded)
     return [
         "SUMMARY",
         _field("Packet", result.packet_type or "Unknown"),
+    ]
+
+
+def _format_race(decoded: dict[str, Any]) -> list[str]:
+    payload = decoded.get("payload_hex") or "-"
+    return [
+        "SUMMARY",
+        _field("Packet", "RACE"),
+        _field("Type", decoded.get("type_hex", "-")),
+        _field("Length", decoded.get("length", "-")),
+        _field("Command ID", decoded.get("command_id_hex", "-")),
+        _field("Payload", payload),
     ]
 
 

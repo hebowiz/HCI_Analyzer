@@ -70,6 +70,48 @@ class H4StreamDecoderTests(unittest.TestCase):
 
         self.assertEqual(chunk.frames, [frame])
 
+    def test_split_race_frame_is_preserved(self) -> None:
+        decoder = H4StreamDecoder()
+
+        first = decoder.feed(bytes.fromhex("05 01 04 00 34"))
+        second = decoder.feed(bytes.fromhex("12 AA BB"))
+
+        self.assertEqual(first.frames, [])
+        self.assertEqual(
+            second.frames,
+            [bytes.fromhex("05 01 04 00 34 12 AA BB")],
+        )
+
+    def test_race_and_hci_frames_can_share_a_chunk(self) -> None:
+        decoder = H4StreamDecoder()
+        chunk = decoder.feed(
+            bytes.fromhex("05 01 04 00 34 12 AA BB 01 1F 20 00")
+        )
+
+        self.assertEqual(
+            chunk.frames,
+            [
+                bytes.fromhex("05 01 04 00 34 12 AA BB"),
+                bytes.fromhex("01 1F 20 00"),
+            ],
+        )
+
+    def test_invalid_race_length_falls_back_to_iso(self) -> None:
+        decoder = H4StreamDecoder()
+        frame = bytes.fromhex("05 01 00 03 00 AA BB CC")
+
+        chunk = decoder.feed(frame)
+
+        self.assertEqual(chunk.frames, [frame])
+
+    def test_race_priority_can_be_disabled(self) -> None:
+        decoder = H4StreamDecoder(prefer_race=False)
+        frame = bytes.fromhex("05 01 04 04 00 AA BB CC DD")
+
+        chunk = decoder.feed(frame)
+
+        self.assertEqual(chunk.frames, [frame])
+
 
 if __name__ == "__main__":
     unittest.main()

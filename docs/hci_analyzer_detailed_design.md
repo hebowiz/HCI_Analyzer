@@ -52,7 +52,7 @@ Opcode、OGF、OCF、Parameter Total Length、Parameter RAWを汎用解析する
 Vendor Specific Commandへの応答としてOpcodeとReturn Parameter RAWを保持する。
 Event Code `0xFF`は`HCI_Vendor_Specific_Event`としてParameter RAWを保持する。
 
-### 2.3 基本解析するH4 Data Packet
+### 2.3 基本解析するH4 Data PacketおよびRACE
 
 次のH4 Packet Indicatorについて、フレーム境界、Handle/Flags、Payload Length、
 Payload Hexまでを解析する。
@@ -64,6 +64,10 @@ Payload Hexまでを解析する。
 | `0x05` | HCI ISO Data |
 
 Data PacketのPayload内部は詳細解析しない。
+
+Headが`0x05`で、little-endianのLengthが`0x0002`～`0x0200`の範囲にある
+フレームはRACEとして優先判定する。RACEはType、Length、Command ID、
+Payload RAWまでを解析し、Payload内部は詳細解析しない。
 
 ### 2.4 初期対象外
 
@@ -102,7 +106,8 @@ HciAnalyzerApplication
     ├── Queue[LogRecord]
     ├── HciParser
     │     ├── HciCommandParser
-    │     └── HciEventParser
+    │     ├── HciEventParser
+    │     └── RaceParser
     ├── JsonlLogger
     └── HciSequenceDiagram
           └── SequenceDiagramWindow
@@ -119,6 +124,7 @@ HciAnalyzerApplication
 | `parser/facade.py` | Packet IndicatorによるParser振り分け |
 | `parser/command.py` | HCI Commandの長さ検証とパラメーター解析 |
 | `parser/event.py` | HCI Eventの長さ検証とパラメーター解析 |
+| `parser/race.py` | RACEフレームの長さ検証と汎用解析 |
 | `parser/registry.py` | Opcode、Event、PHYなどの静的定義 |
 | `parser/supported_commands.py` | Supported Commandsビットマップ解析 |
 | `logging/jsonl_logger.py` | セッション単位のJSONL保存 |
@@ -304,10 +310,16 @@ details = { port: <port name> }
 | ACL `0x02` | 5 | `5 + Data_Total_Length` |
 | SCO `0x03` | 4 | `4 + Data_Total_Length` |
 | Event `0x04` | 3 | `3 + Parameter_Total_Length` |
+| RACE `0x05` | 4 | `4 + Length`（LengthはCommand IDとPayloadの合計） |
 | ISO `0x05` | 5 | `5 + (ISO_Data_Load_Length & 0x3FFF)` |
 
 1回のreadがフレーム途中で分割される場合と、複数フレームが連結される場合の
 両方に対応する。
+
+`0x05`はRACEとHCI ISOで共通のため、現在はRACEを優先する。RACE Lengthが
+`0x0002`～`0x0200`ならRACEのフレーム長を採用し、範囲外の場合はHCI ISOとして
+処理する。将来HCI ISOを使用する場合に備え、DecoderとParserにはRACE優先を
+無効化できる設定を持たせる。
 
 ### 8.2 起動時ノイズ
 
@@ -337,7 +349,8 @@ details = { port: <port name> }
 ```text
 0x01 -> HciCommandParser
 0x04 -> HciEventParser
-0x02 / 0x03 / 0x05 -> Data Packet基本解析
+0x05かつ有効なRACE Length -> RaceParser
+0x02 / 0x03 / RACEに該当しない0x05 -> Data Packet基本解析
 その他 -> UNKNOWN_PACKET_INDICATOR
 ```
 

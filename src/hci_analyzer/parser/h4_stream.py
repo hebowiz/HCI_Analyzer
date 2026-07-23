@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from hci_analyzer.parser.race import race_frame_length
 from hci_analyzer.parser.registry import COMMAND_DEFINITIONS
 
 
@@ -16,9 +17,10 @@ class H4StreamChunk:
 class H4StreamDecoder:
     """Extract complete H4 packets from arbitrarily divided UART reads."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, prefer_race: bool = True) -> None:
         self._buffer = bytearray()
         self._synchronized = False
+        self._prefer_race = prefer_race
 
     def feed(self, data: bytes) -> H4StreamChunk:
         """Append bytes and return newly completed frames and noise."""
@@ -93,6 +95,10 @@ class H4StreamDecoder:
                 return None
             return 3 + self._buffer[offset + 2]
         if indicator == 0x05:
+            if self._prefer_race:
+                race_length = race_frame_length(self._buffer, offset)
+                if race_length is not None:
+                    return race_length
             if available < 5:
                 return None
             return 5 + (
@@ -125,4 +131,6 @@ class H4StreamDecoder:
             )
         if indicator == 0x04 and available >= 3:
             return self._buffer[offset + 1] in (0x0E, 0x0F, 0x3E, 0xFF)
+        if indicator == 0x05 and self._prefer_race:
+            return race_frame_length(self._buffer, offset) is not None
         return False

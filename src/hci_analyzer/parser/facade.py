@@ -5,6 +5,7 @@ import re
 from hci_analyzer.models import H4PacketIndicator, ParseError, ParseResult
 from hci_analyzer.parser.command import HciCommandParser
 from hci_analyzer.parser.event import HciEventParser
+from hci_analyzer.parser.race import RaceParser, race_frame_length
 
 
 class HciParser:
@@ -14,9 +15,13 @@ class HciParser:
         self,
         command_parser: HciCommandParser | None = None,
         event_parser: HciEventParser | None = None,
+        *,
+        prefer_race: bool = True,
     ) -> None:
         self._command_parser = command_parser or HciCommandParser()
         self._event_parser = event_parser or HciEventParser()
+        self._race_parser = RaceParser()
+        self._prefer_race = prefer_race
 
     def parse_bytes(self, data: bytes) -> ParseResult:
         """Parse a complete H4 frame supplied as bytes."""
@@ -35,6 +40,12 @@ class HciParser:
             return self._command_parser.parse(data)
         if indicator == H4PacketIndicator.EVENT:
             return self._event_parser.parse(data)
+        if (
+            indicator == H4PacketIndicator.ISO_DATA
+            and self._prefer_race
+            and race_frame_length(data) is not None
+        ):
+            return self._race_parser.parse(data)
         if indicator in (
             H4PacketIndicator.ACL_DATA,
             H4PacketIndicator.SYNCHRONOUS_DATA,

@@ -34,6 +34,7 @@ python -m pip install -r requirements.txt
 - OGF `0x3F`のVendor Specific CommandをOGF、OCF、Parameter RAWとして保存
 - Vendor Commandに対するCommand Complete／Command StatusをOpcodeで識別
 - Vendor Specific Event `0xFF`のParameter RAWを保存
+- Head `0x05`のRACEフレームをType、Command ID、Payload RAWとして保存
 - ACL/SCO/ISOパケットの基本フレーム情報解析
 - Hex Stringの手動解析
 - 2ポートと手動解析の結果を1つのGUIログへ統合
