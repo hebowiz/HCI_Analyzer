@@ -12,3 +12,4 @@ logs/*_sequence.mmd
 logs/*_sequence.md
 logs/*_sequence.svg
 logs/*_sequence.png
+logs/*.txt
