@@ -29,6 +29,10 @@ from hci_analyzer.serial.transport import (
     TransportEvent,
     TransportEventKind,
 )
+from hci_analyzer.vendor.console_definitions import (
+    decode_vendor_parameters,
+    load_vendor_console_definitions,
+)
 
 
 class HciCommandConsoleApplication:
@@ -52,6 +56,7 @@ class HciCommandConsoleApplication:
             on_clear_log=lambda: None,
             on_reset=self._reset_current_values,
             on_reset_command_support=self._clear_command_support,
+            on_load_vendor_definitions=self._load_vendor_definitions,
         )
         self._window.set_refresh_handler(self._refresh_ports)
         self._window.set_close_handler(self._close)
@@ -60,6 +65,8 @@ class HciCommandConsoleApplication:
         self._shared_parameter_values: dict[str, dict[str, Any]] = {}
         self._latest_encoded: EncodedCommand | None = None
         self._command_support: dict[int, bool] = {}
+        self._definitions_by_opcode = dict(COMMAND_DEFINITIONS_BY_OPCODE)
+        self._selectable_definitions = list(SELECTABLE_COMMAND_DEFINITIONS)
 
     def run(self) -> None:
         """Start the Command Console event loop."""
@@ -72,7 +79,7 @@ class HciCommandConsoleApplication:
             self._saved_settings.window_width,
             self._saved_settings.window_height,
         )
-        self._window.set_command_definitions(SELECTABLE_COMMAND_DEFINITIONS)
+        self._window.set_command_definitions(tuple(self._selectable_definitions))
         self._window.after(50, self._drain_transport_events)
         self._window.run()
 
@@ -86,7 +93,7 @@ class HciCommandConsoleApplication:
 
     def _select_command(self, opcode: int) -> None:
         self._cache_current_values()
-        definition = COMMAND_DEFINITIONS_BY_OPCODE[opcode]
+        definition = self._definitions_by_opcode[opcode]
         values = self._values_for_definition(definition)
         self._selected_definition = definition
         self._window.show_parameter_form(definition)
@@ -146,7 +153,7 @@ class HciCommandConsoleApplication:
         self._submit_encoded(definition, encoded)
 
     def _send_quick_command(self, opcode: int) -> None:
-        definition = COMMAND_DEFINITIONS_BY_OPCODE.get(opcode)
+        definition = self._definitions_by_opcode.get(opcode)
         if definition is None or opcode not in (0x0C03, 0x201F):
             self._append_application_error(
                 f"Unknown quick command opcode 0x{opcode:04X}"
@@ -253,6 +260,8 @@ class HciCommandConsoleApplication:
         self._window.after(50, self._drain_transport_events)
 
     def _handle_transport_event(self, event: TransportEvent) -> None:
+        if event.parsed is not None:
+            self._apply_external_command_name(event.parsed)
         self._window.append_transport_event(event)
         if event.kind == TransportEventKind.CONNECTED:
             self._window.set_connected_state(True)
@@ -274,6 +283,27 @@ class HciCommandConsoleApplication:
                 event_name == "HCI_Command_Status" and status != 0
             ):
                 self._window.set_busy_state(False)
+
+    def _apply_external_command_name(self, parsed: ParseResult) -> None:
+        if not parsed.success:
+            return
+        decoded = parsed.decoded
+        raw_opcode = decoded.get("opcode_value")
+        if not isinstance(raw_opcode, int):
+            raw_opcode = decoded.get("command_opcode_value")
+        if not isinstance(raw_opcode, int):
+            return
+        definition = self._definitions_by_opcode.get(raw_opcode)
+        if definition is None or not definition.vendor_specific:
+            return
+        decoded["command_name"] = definition.display_name
+        if parsed.packet_type == "HCI_Command":
+            decoded["display_name"] = definition.display_name
+            parameters = parsed.raw_data[4:]
+            decoded["parameters"] = decode_vendor_parameters(
+                definition,
+                parameters,
+            )
 
     def _apply_supported_commands(self, parsed: ParseResult) -> None:
         if not parsed.success:
@@ -303,11 +333,96 @@ class HciCommandConsoleApplication:
         self._command_support.clear()
         self._window.set_command_support({})
 
+    def _load_vendor_definitions(self) -> None:
+        paths = self._window.choose_vendor_definition_files()
+        if not paths:
+            return
+        loaded_definitions: list[ConsoleCommandDefinition] = []
+        review_names: list[str] = []
+        seen_opcodes: set[int] = set()
+        try:
+            for path in paths:
+                loaded = load_vendor_console_definitions(path)
+                for definition in loaded.definitions:
+                    if definition.opcode in COMMAND_DEFINITIONS_BY_OPCODE:
+                        raise ValueError(
+                            f"Vendor definition cannot replace built-in opcode "
+                            f"0x{definition.opcode:04X}"
+                        )
+                    if definition.opcode in seen_opcodes:
+                        raise ValueError(
+                            f"Duplicate vendor opcode 0x{definition.opcode:04X} "
+                            "across selected files"
+                        )
+                    seen_opcodes.add(definition.opcode)
+                    loaded_definitions.append(definition)
+                    if definition.review_required:
+                        review_names.append(
+                            f"{definition.display_name} "
+                            f"(0x{definition.opcode:04X})"
+                        )
+            retained = [
+                item
+                for item in self._selectable_definitions
+                if item.opcode not in seen_opcodes
+            ]
+            selection_keys: set[tuple[str, str, str | None]] = set()
+            for definition in (*retained, *loaded_definitions):
+                key = (
+                    definition.category,
+                    definition.name,
+                    definition.version,
+                )
+                if key in selection_keys:
+                    raise ValueError(
+                        "Duplicate command selection name: "
+                        f"{definition.display_name}"
+                    )
+                selection_keys.add(key)
+        except ValueError as exc:
+            self._append_application_error(
+                f"Vendor definition load failed: {format_exception_for_log(exc)}"
+            )
+            return
+        if review_names and not self._window.confirm_review_required_definitions(
+            review_names
+        ):
+            self._append_application_message(
+                "Vendor definition loading was cancelled"
+            )
+            return
+
+        replaced_opcodes = {item.opcode for item in loaded_definitions}
+        self._selectable_definitions = [
+            item
+            for item in self._selectable_definitions
+            if item.opcode not in replaced_opcodes
+        ]
+        self._selectable_definitions.extend(loaded_definitions)
+        for definition in loaded_definitions:
+            self._definitions_by_opcode[definition.opcode] = definition
+            self._parameter_value_cache.pop(definition.opcode, None)
+            self._shared_parameter_values.pop(definition.name, None)
+        self._window.set_command_definitions(tuple(self._selectable_definitions))
+        self._append_application_message(
+            f"Loaded {len(loaded_definitions)} vendor command definition(s)"
+        )
+
     def _append_application_error(self, message: str) -> None:
         self._window.append_transport_event(
             TransportEvent(
                 timestamp=datetime.now().astimezone(),
                 kind=TransportEventKind.ERROR,
+                source="Application",
+                message=message,
+            )
+        )
+
+    def _append_application_message(self, message: str) -> None:
+        self._window.append_transport_event(
+            TransportEvent(
+                timestamp=datetime.now().astimezone(),
+                kind=TransportEventKind.SYSTEM,
                 source="Application",
                 message=message,
             )

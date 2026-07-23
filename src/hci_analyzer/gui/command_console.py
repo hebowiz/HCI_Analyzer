@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import scrolledtext, ttk
+from pathlib import Path
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any, Mapping
 
 from hci_analyzer.command_builder.definitions import (
@@ -105,6 +106,7 @@ class CommandConsoleWindow:
         on_clear_log: Callable[[], None],
         on_reset: Callable[[], None] | None = None,
         on_reset_command_support: Callable[[], None] | None = None,
+        on_load_vendor_definitions: Callable[[], None] | None = None,
     ) -> None:
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
@@ -115,6 +117,9 @@ class CommandConsoleWindow:
         self._on_clear_log = on_clear_log
         self._on_reset = on_reset or (lambda: None)
         self._on_reset_command_support = on_reset_command_support or (lambda: None)
+        self._on_load_vendor_definitions = (
+            on_load_vendor_definitions or (lambda: None)
+        )
         self._refresh_handler: Callable[[], None] = lambda: None
 
         self._root = tk.Tk()
@@ -248,6 +253,29 @@ class CommandConsoleWindow:
         """Return the response timeout selected for the next command."""
         return float(self._response_timeout_variable.get())
 
+    def choose_vendor_definition_files(self) -> tuple[Path, ...]:
+        """Ask the user to select external vendor definition JSON files."""
+        selected = filedialog.askopenfilenames(
+            parent=self._root,
+            title="Vendor Command定義を選択",
+            initialdir="vendor_definitions",
+            filetypes=(("JSON", "*.json"), ("All files", "*.*")),
+        )
+        return tuple(Path(item) for item in selected)
+
+    def confirm_review_required_definitions(self, names: list[str]) -> bool:
+        """Confirm loading inferred definitions that still require review."""
+        command_names = "\n".join(f"- {name}" for name in names)
+        return messagebox.askyesno(
+            "未確定Vendor定義の読込",
+            "選択した定義はreview_required=trueです。\n"
+            "推定結果が誤っているとControllerへ意図しないCommandを送信する"
+            "可能性があります。\n\n"
+            f"{command_names}\n\n"
+            "内容を確認済みとして読み込みますか？",
+            parent=self._root,
+        )
+
     def get_parameter_values(self) -> dict[str, Any]:
         """Return all values currently entered in the parameter form."""
         values: dict[str, Any] = {}
@@ -340,6 +368,9 @@ class CommandConsoleWindow:
         self._busy = busy
         self._response_timeout_combo.configure(
             state=tk.DISABLED if busy else "readonly"
+        )
+        self._vendor_load_button.configure(
+            state=tk.DISABLED if busy else tk.NORMAL
         )
         self._update_send_state()
 
@@ -442,6 +473,17 @@ class CommandConsoleWindow:
         )
         ttk.Label(connection, text="s").grid(
             row=0, column=11, padx=(0, 8), pady=8
+        )
+        self._vendor_load_button = ttk.Button(
+            connection,
+            text="Vendor定義読込",
+            command=self._on_load_vendor_definitions,
+        )
+        self._vendor_load_button.grid(
+            row=0,
+            column=12,
+            padx=(8, 8),
+            pady=8,
         )
 
         command_area = ttk.Frame(self._root)

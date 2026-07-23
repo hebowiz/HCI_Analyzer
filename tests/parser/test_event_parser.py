@@ -40,6 +40,24 @@ class HciEventParserTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.error.code, "UNKNOWN_OPCODE")
 
+    def test_vendor_command_complete_is_preserved_without_fixed_length(self) -> None:
+        result = self.parser.parse_hex_string(
+            "04 0E 07 01 41 FC 00 AA 34 12"
+        )
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.decoded["vendor_specific"])
+        self.assertEqual(result.decoded["command_opcode"], "0xFC41")
+        self.assertEqual(result.decoded["status"], 0)
+        self.assertEqual(result.decoded["return_parameters_hex"], "00 AA 34 12")
+
+    def test_vendor_command_status_is_preserved(self) -> None:
+        result = self.parser.parse_hex_string("04 0F 04 00 01 41 FC")
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.decoded["vendor_specific"])
+        self.assertEqual(result.decoded["command_opcode"], "0xFC41")
+
     def test_command_status(self) -> None:
         result = self.parser.parse_hex_string("04 0F 04 00 01 34 20")
 
@@ -75,7 +93,10 @@ class HciEventParserTests(unittest.TestCase):
         result = self.parser.parse_hex_string("04 FF 02 AA BB")
 
         self.assertTrue(result.success)
-        self.assertEqual(result.decoded["event_name"], "Unknown HCI Event")
+        self.assertEqual(
+            result.decoded["event_name"],
+            "HCI_Vendor_Specific_Event",
+        )
         self.assertEqual(result.decoded["parameters_hex"], "AA BB")
 
     def test_supported_commands_v1_response(self) -> None:

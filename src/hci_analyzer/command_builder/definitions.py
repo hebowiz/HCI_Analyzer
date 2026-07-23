@@ -54,6 +54,8 @@ class ParameterDefinition:
     length_from: str | None = None
     derived: bool = False
     allowed_values: tuple[int, ...] = ()
+    byte_offset: int | None = None
+    encoding_type: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -67,6 +69,10 @@ class ConsoleCommandDefinition:
     parameters: tuple[ParameterDefinition, ...] = ()
     response_kind: ResponseKind = ResponseKind.COMMAND_COMPLETE
     completion_event_code: int | None = None
+    vendor_specific: bool = False
+    parameter_template: bytes | None = None
+    review_required: bool = False
+    external_source: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -79,6 +85,7 @@ class ConsoleCommandDefinition:
 LE_RF_PHY_TEST = "LE RF PHY Test"
 CONTROLLER_AND_BASEBAND = "Controller & Baseband"
 INFORMATIONAL_PARAMETERS = "Informational Parameters"
+VENDOR_SPECIFIC = "Vendor Specific"
 
 CHANNEL_DEFAULT = 19
 DATA_LENGTH_DEFAULT = 37

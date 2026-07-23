@@ -23,6 +23,7 @@ class TransportEventKind(str, Enum):
     DISCONNECTED = "disconnected"
     TRANSMITTED = "transmitted"
     RECEIVED = "received"
+    SYSTEM = "system"
     ERROR = "error"
     RESPONSE_TIMEOUT = "response_timeout"
 

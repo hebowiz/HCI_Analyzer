@@ -192,6 +192,8 @@ class CommandValidator:
     def _parameter_length(
         definition: ConsoleCommandDefinition, values: Mapping[str, Any]
     ) -> int:
+        if definition.vendor_specific:
+            return len(definition.parameter_template or b"")
         if definition.opcode == 0x201D:
             return 1
         if definition.opcode == 0x2033:

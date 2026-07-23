@@ -32,6 +32,9 @@ GUIからHex Stringを手動入力し、シリアルポートを使用せずに1
 | `0x1002` | `HCI_Read_Local_Supported_Commands[v1]` |
 | `0x1010` | `HCI_Read_Local_Supported_Commands[v2]` |
 
+OGFが`0x3F`のVendor Specific Commandは、未知Opcodeでもエラーにせず、
+Opcode、OGF、OCF、Parameter Total Length、Parameter RAWを汎用解析する。
+
 ### 2.2 詳細解析するHCI Event
 
 - `HCI_Command_Complete`
@@ -45,7 +48,9 @@ GUIからHex Stringを手動入力し、シリアルポートを使用せずに1
 
 未対応EventはH4 Eventとして受理し、Event Code、長さ、ParameterのRAW Hexを
 保持する。Command CompleteまたはCommand Statusが未対応Opcodeを参照する場合は
-`UNKNOWN_OPCODE`エラーとする。
+`UNKNOWN_OPCODE`エラーとする。ただしOpcodeのOGFが`0x3F`の場合は、
+Vendor Specific Commandへの応答としてOpcodeとReturn Parameter RAWを保持する。
+Event Code `0xFF`は`HCI_Vendor_Specific_Event`としてParameter RAWを保持する。
 
 ### 2.3 基本解析するH4 Data Packet
 
@@ -368,6 +373,7 @@ details
 - OCFは`opcode & 0x03FF`
 - 実フレーム長とParameter Total Lengthを検証
 - Opcodeを`COMMAND_DEFINITIONS`から検索
+- 未定義OpcodeのOGFが`0x3F`ならVendor Specific Commandとして汎用解析
 
 ### 10.2 固定長Command
 
@@ -475,7 +481,7 @@ Sample Countと残りのParameter Lengthが一致しない場合は
 | `UNKNOWN_PACKET_INDICATOR` | 未知のH4 Indicator |
 | `TRUNCATED_HEADER` | H4ヘッダー不足 |
 | `PACKET_LENGTH_MISMATCH` | H4ヘッダーの長さと実フレーム長が不一致 |
-| `UNKNOWN_OPCODE` | 詳細解析対象外のOpcode |
+| `UNKNOWN_OPCODE` | 詳細解析対象外かつVendor SpecificではないOpcode |
 | `PARAMETER_LENGTH_MISMATCH` | Command Definitionの長さと不一致 |
 | `RETURN_PARAMETER_LENGTH_MISMATCH` | Command Complete応答長が不一致 |
 | `COMMAND_STATUS_LENGTH_MISMATCH` | Command Status長が不一致 |

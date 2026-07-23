@@ -41,7 +41,7 @@ class HciCommandEncoder:
             raise ValueError(messages)
 
         values = validation.normalized_values
-        parameters = self._encode_parameters(definition.opcode, values)
+        parameters = self._encode_parameters(definition, values)
         if len(parameters) > 0xFF:
             raise ValueError("Parameter Total Length exceeds 255 octets")
         frame = (
@@ -57,7 +57,17 @@ class HciCommandEncoder:
         return EncodedCommand(definition, dict(values), parameters, frame)
 
     @staticmethod
-    def _encode_parameters(opcode: int, values: Mapping[str, Any]) -> bytes:
+    def _encode_parameters(
+        definition: ConsoleCommandDefinition,
+        values: Mapping[str, Any],
+    ) -> bytes:
+        opcode = definition.opcode
+        if definition.vendor_specific:
+            from hci_analyzer.vendor.console_definitions import (
+                encode_vendor_parameters,
+            )
+
+            return encode_vendor_parameters(definition, values)
         if opcode == 0x201D:
             return bytes([values["RX_Channel"]])
         if opcode == 0x2033:

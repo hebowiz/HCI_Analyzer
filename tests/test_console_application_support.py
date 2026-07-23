@@ -1,12 +1,18 @@
 """Tests for applying Controller capability results to the console."""
 
+import json
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import Mock
 
 from hci_analyzer.command_builder.encoder import HciCommandEncoder
 from hci_analyzer.console_application import HciCommandConsoleApplication
-from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
+from hci_analyzer.command_builder.definitions import (
+    COMMAND_DEFINITIONS_BY_OPCODE,
+    SELECTABLE_COMMAND_DEFINITIONS,
+)
 from hci_analyzer.models import ParseResult
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 
@@ -18,12 +24,16 @@ class _WindowStub:
         self.on_form_shown = lambda _definition, _values: None
         self.busy = False
         self.response_timeout_seconds = 3.0
+        self.definition_paths: tuple[Path, ...] = ()
+        self.review_confirmed = True
+        self.definitions: tuple[object, ...] = ()
+        self.events: list[object] = []
 
     def set_command_support(self, support: dict[int, bool]) -> None:
         self.support = dict(support)
 
-    def append_transport_event(self, _event: object) -> None:
-        return None
+    def append_transport_event(self, event: object) -> None:
+        self.events.append(event)
 
     def set_connected_state(self, _connected: bool) -> None:
         return None
@@ -52,6 +62,15 @@ class _WindowStub:
     def set_parameter_values(self, values: dict[str, object]) -> None:
         self.values = dict(values)
 
+    def choose_vendor_definition_files(self) -> tuple[Path, ...]:
+        return self.definition_paths
+
+    def confirm_review_required_definitions(self, _names: list[str]) -> bool:
+        return self.review_confirmed
+
+    def set_command_definitions(self, definitions: tuple[object, ...]) -> None:
+        self.definitions = definitions
+
 
 class CommandConsoleSupportTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -61,6 +80,12 @@ class CommandConsoleSupportTests(unittest.TestCase):
         self.application._shared_parameter_values = {}
         self.application._selected_definition = None
         self.application._window = _WindowStub()
+        self.application._definitions_by_opcode = dict(
+            COMMAND_DEFINITIONS_BY_OPCODE
+        )
+        self.application._selectable_definitions = list(
+            SELECTABLE_COMMAND_DEFINITIONS
+        )
 
     def test_successful_capability_response_updates_console_commands(self) -> None:
         supported = bytearray(64)
@@ -138,6 +163,67 @@ class CommandConsoleSupportTests(unittest.TestCase):
             expected_opcode=0x0C03,
             response_timeout_seconds=1.0,
         )
+
+    def test_reviewed_vendor_definition_is_loaded_and_selectable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vendor.json"
+            path.write_text(
+                json.dumps(_vendor_definition_payload()),
+                encoding="utf-8",
+            )
+            self.application._window.definition_paths = (path,)
+
+            self.application._load_vendor_definitions()
+
+        definition = self.application._definitions_by_opcode[0xFC41]
+        self.assertTrue(definition.vendor_specific)
+        self.assertIn(definition, self.application._window.definitions)
+        self.assertEqual(
+            self.application._window.events[-1].kind,
+            TransportEventKind.SYSTEM,
+        )
+
+    def test_unconfirmed_vendor_draft_is_not_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vendor.json"
+            path.write_text(
+                json.dumps(_vendor_definition_payload()),
+                encoding="utf-8",
+            )
+            self.application._window.definition_paths = (path,)
+            self.application._window.review_confirmed = False
+
+            self.application._load_vendor_definitions()
+
+        self.assertNotIn(0xFC41, self.application._definitions_by_opcode)
+
+    def test_external_vendor_name_is_applied_to_transport_log_parse(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vendor.json"
+            path.write_text(
+                json.dumps(_vendor_definition_payload()),
+                encoding="utf-8",
+            )
+            self.application._window.definition_paths = (path,)
+            self.application._load_vendor_definitions()
+        parsed = HciCommandEncoder()._parser.parse_hex_string(
+            "01 41 FC 01 13"
+        )
+
+        self.application._handle_transport_event(
+            TransportEvent(
+                timestamp=datetime.now().astimezone(),
+                kind=TransportEventKind.TRANSMITTED,
+                source="Test",
+                parsed=parsed,
+            )
+        )
+
+        self.assertEqual(
+            parsed.decoded["display_name"],
+            "Vendor_Set_Channel",
+        )
+        self.assertEqual(parsed.decoded["parameters"]["channel"], 19)
 
     def test_port_connection_events_do_not_reset_capability_result(self) -> None:
         self.application._command_support = {0x201D: False}
@@ -254,3 +340,27 @@ class CommandConsoleSupportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _vendor_definition_payload() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "review_required": True,
+        "commands": [
+            {
+                "opcode": "0xFC41",
+                "name": "Vendor_Set_Channel",
+                "parameter_length": 1,
+                "parameter_template_hex": "13",
+                "parameters": [
+                    {
+                        "name": "channel",
+                        "offset": 0,
+                        "type": "uint8",
+                        "default": 19,
+                    }
+                ],
+                "response": {"kind": "command_complete"},
+            }
+        ],
+    }

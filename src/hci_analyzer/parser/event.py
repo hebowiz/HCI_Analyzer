@@ -75,6 +75,37 @@ class HciEventParser:
         opcode = int.from_bytes(params[1:3], "little")
         definition = COMMAND_DEFINITIONS.get(opcode)
         if definition is None:
+            if self._is_vendor_opcode(opcode):
+                return_params = params[3:]
+                decoded: dict[str, Any] = {
+                    **common,
+                    "num_hci_command_packets": params[0],
+                    "command_opcode": f"0x{opcode:04X}",
+                    "command_opcode_value": opcode,
+                    "command_name": f"Vendor_Specific_Command_0x{opcode:04X}",
+                    "vendor_specific": True,
+                    "return_parameters_hex": return_params.hex(" ").upper(),
+                    "return_parameters": list(return_params),
+                }
+                if return_params:
+                    status = return_params[0]
+                    decoded.update(
+                        {
+                            "status": status,
+                            "status_hex": f"0x{status:02X}",
+                            "status_name": (
+                                "command succeeded"
+                                if status == 0
+                                else "vendor-defined/non-zero status"
+                            ),
+                        }
+                    )
+                return ParseResult(
+                    True,
+                    "HCI_Event",
+                    frame,
+                    decoded=decoded,
+                )
             return self._unknown_opcode(frame, common, opcode)
 
         return_params = params[3:]
@@ -144,7 +175,8 @@ class HciEventParser:
                 {**common, "actual_parameter_length": len(params)},
             )
         opcode = int.from_bytes(params[2:4], "little")
-        if opcode not in COMMAND_DEFINITIONS:
+        vendor_specific = self._is_vendor_opcode(opcode)
+        if opcode not in COMMAND_DEFINITIONS and not vendor_specific:
             return self._unknown_opcode(frame, common, opcode)
         status = params[0]
         return ParseResult(
@@ -159,7 +191,12 @@ class HciEventParser:
                 "num_hci_command_packets": params[1],
                 "command_opcode": f"0x{opcode:04X}",
                 "command_opcode_value": opcode,
-                "command_name": command_display_name(opcode),
+                "command_name": (
+                    f"Vendor_Specific_Command_0x{opcode:04X}"
+                    if vendor_specific
+                    else command_display_name(opcode)
+                ),
+                "vendor_specific": vendor_specific,
             },
         )
 
@@ -249,6 +286,10 @@ class HciEventParser:
             f"Event refers to unsupported HCI command opcode 0x{opcode:04X}",
             {**common, "command_opcode": f"0x{opcode:04X}"},
         )
+
+    @staticmethod
+    def _is_vendor_opcode(opcode: int) -> bool:
+        return ((opcode >> 10) & 0x3F) == 0x3F
 
     @staticmethod
     def _error(

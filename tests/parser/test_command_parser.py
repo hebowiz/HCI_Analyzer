@@ -94,6 +94,22 @@ class HciCommandParserTests(unittest.TestCase):
         self.assertIsNotNone(result.error)
         self.assertEqual(result.error.code, "UNKNOWN_OPCODE")
 
+    def test_vendor_specific_command_is_preserved(self) -> None:
+        result = self.parser.parse_hex_string("01 41 FC 04 13 F6 34 12")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.decoded["ogf"], 0x3F)
+        self.assertEqual(result.decoded["ocf"], 0x041)
+        self.assertTrue(result.decoded["vendor_specific"])
+        self.assertEqual(
+            result.decoded["parameters"]["raw_hex"],
+            "13 F6 34 12",
+        )
+        self.assertEqual(
+            result.decoded["parameters"]["raw_bytes"],
+            [0x13, 0xF6, 0x34, 0x12],
+        )
+
     def test_header_length_mismatch_is_error(self) -> None:
         result = self.parser.parse_hex_string("01 34 20 04 13 25 00")
 

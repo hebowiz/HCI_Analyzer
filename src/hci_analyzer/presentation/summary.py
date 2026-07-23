@@ -217,6 +217,13 @@ def _format_command_response(
         lines.append(_field("Received Packets", decoded.get("num_packets", "-")))
     if decoded.get("response_type") == "Supported_Commands":
         lines.extend(_format_supported_commands(decoded))
+    if decoded.get("vendor_specific"):
+        lines.append(
+            _field(
+                "Return Parameters",
+                decoded.get("return_parameters_hex", "-") or "-",
+            )
+        )
     if event_name == "HCI_Command_Status":
         completion = (
             "Command accepted; completion event may follow"

@@ -41,6 +41,21 @@ class H4StreamDecoderTests(unittest.TestCase):
         )
         self.assertEqual(chunk.frames, [bytes.fromhex("01 1F 20 00")])
 
+    def test_resynchronizes_to_vendor_command_after_startup_noise(self) -> None:
+        decoder = H4StreamDecoder()
+        chunk = decoder.feed(
+            bytes.fromhex("01 AA BB FF 01 41 FC 02 12 34")
+        )
+
+        self.assertEqual(
+            chunk.discarded_noise,
+            [bytes.fromhex("01 AA BB FF")],
+        )
+        self.assertEqual(
+            chunk.frames,
+            [bytes.fromhex("01 41 FC 02 12 34")],
+        )
+
     def test_acl_frame_boundary_is_preserved(self) -> None:
         decoder = H4StreamDecoder()
         chunk = decoder.feed(bytes.fromhex("02 01 20 03 00 AA BB CC"))

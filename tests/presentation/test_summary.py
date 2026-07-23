@@ -50,6 +50,17 @@ class HciSummaryTests(unittest.TestCase):
         self.assertIn("Command                : HCI_Reset", summary)
         self.assertIn("Purpose                : Reset the Controller to standby state", summary)
 
+    def test_vendor_command_and_response_summaries_keep_raw_parameters(self) -> None:
+        command = self.parser.parse_hex_string("01 41 FC 02 13 F6")
+        response = self.parser.parse_hex_string("04 0E 06 01 41 FC 00 AA BB")
+
+        command_summary = "\n".join(format_parse_summary(command))
+        response_summary = "\n".join(format_parse_summary(response))
+
+        self.assertIn("Command                : Vendor Specific Command 0xFC41", command_summary)
+        self.assertIn("Raw Hex                : 13 F6", command_summary)
+        self.assertIn("Return Parameters      : 00 AA BB", response_summary)
+
     def test_packet_report_summary_includes_response_time(self) -> None:
         result = self.parser.parse_hex_string(
             "04 0E 06 01 1F 20 00 34 12"

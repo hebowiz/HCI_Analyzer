@@ -68,6 +68,7 @@ class CommandConsoleWindowTests(unittest.TestCase):
         window._selected_command_supported = None
         window._command_support = {}
         window._response_timeout_combo = Mock()
+        window._vendor_load_button = Mock()
         window._send_button = Mock()
         window._quick_reset_button = Mock()
         window._quick_test_end_button = Mock()
@@ -76,10 +77,16 @@ class CommandConsoleWindowTests(unittest.TestCase):
         window._response_timeout_combo.configure.assert_called_with(
             state=tk.DISABLED
         )
+        window._vendor_load_button.configure.assert_called_with(
+            state=tk.DISABLED
+        )
 
         window.set_busy_state(False)
         window._response_timeout_combo.configure.assert_called_with(
             state="readonly"
+        )
+        window._vendor_load_button.configure.assert_called_with(
+            state=tk.NORMAL
         )
 
     def test_mouse_wheel_scrolls_parameter_canvas_from_blank_area(self) -> None:

@@ -115,6 +115,7 @@ EVENT_NAMES: Final[dict[int, str]] = {
     0x0E: "HCI_Command_Complete",
     0x0F: "HCI_Command_Status",
     0x3E: "HCI_LE_Meta_Event",
+    0xFF: "HCI_Vendor_Specific_Event",
 }
 
 LE_META_EVENT_NAMES: Final[dict[int, str]] = {

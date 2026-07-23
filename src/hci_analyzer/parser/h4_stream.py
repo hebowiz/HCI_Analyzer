@@ -119,7 +119,10 @@ class H4StreamDecoder:
             opcode = int.from_bytes(
                 self._buffer[offset + 1 : offset + 3], "little"
             )
-            return opcode in COMMAND_DEFINITIONS
+            return (
+                opcode in COMMAND_DEFINITIONS
+                or ((opcode >> 10) & 0x3F) == 0x3F
+            )
         if indicator == 0x04 and available >= 3:
-            return self._buffer[offset + 1] in (0x0E, 0x0F, 0x3E)
+            return self._buffer[offset + 1] in (0x0E, 0x0F, 0x3E, 0xFF)
         return False

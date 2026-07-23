@@ -45,6 +45,23 @@ class HciCommandParser:
 
         definition = COMMAND_DEFINITIONS.get(opcode)
         if definition is None:
+            if common["ogf"] == 0x3F:
+                params = frame[4:]
+                return ParseResult(
+                    True,
+                    "HCI_Command",
+                    frame,
+                    decoded={
+                        **common,
+                        "command_name": f"Vendor_Specific_Command_0x{opcode:04X}",
+                        "display_name": f"Vendor Specific Command 0x{opcode:04X}",
+                        "vendor_specific": True,
+                        "parameters": {
+                            "raw_hex": params.hex(" ").upper(),
+                            "raw_bytes": list(params),
+                        },
+                    },
+                )
             return self._error(
                 frame,
                 "UNKNOWN_OPCODE",
