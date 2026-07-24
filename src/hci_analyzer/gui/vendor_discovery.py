@@ -1156,6 +1156,7 @@ class _ParameterDialog:
             ("選択肢（カンマ区切り）", choices, "entry"),
             ("説明", description, "entry"),
         )
+        initial_focus: tk.Widget | None = None
         for row, (label, variable, editor) in enumerate(fields):
             ttk.Label(dialog, text=label).grid(
                 row=row, column=0, sticky="e", padx=(10, 6), pady=5
@@ -1174,6 +1175,8 @@ class _ParameterDialog:
             else:
                 widget = ttk.Entry(dialog, textvariable=variable, width=37)
             widget.grid(row=row, column=1, padx=(0, 10), pady=5)
+            if initial_focus is None:
+                initial_focus = widget
 
         def accept() -> None:
             selected_kind = PARAMETER_KIND_VALUES.get(kind.get(), kind.get())
@@ -1242,7 +1245,7 @@ class _ParameterDialog:
         ).grid(row=0, column=1, padx=4)
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
         _center_dialog(dialog, self._parent)
-        dialog.grab_set()
+        _activate_modal_dialog(dialog, initial_focus)
         self._parent.wait_window(dialog)
         return self._result
 
@@ -1276,7 +1279,8 @@ class _ManualLayoutDialog:
         ttk.Label(dialog, text="オフセット").grid(
             row=1, column=0, sticky="e", padx=(10, 6), pady=6
         )
-        ttk.Entry(dialog, textvariable=offset, width=24).grid(
+        offset_entry = ttk.Entry(dialog, textvariable=offset, width=24)
+        offset_entry.grid(
             row=1, column=1, sticky="w", padx=(0, 10), pady=6
         )
         ttk.Label(dialog, text="型").grid(
@@ -1321,7 +1325,7 @@ class _ManualLayoutDialog:
         ).grid(row=0, column=1, padx=4)
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
         _center_dialog(dialog, self._parent)
-        dialog.grab_set()
+        _activate_modal_dialog(dialog, offset_entry)
         self._parent.wait_window(dialog)
         return self._result
 
@@ -1366,6 +1370,19 @@ def _center_dialog(dialog: tk.Toplevel, parent: tk.Tk) -> None:
         screen_height=dialog.winfo_screenheight(),
     )
     dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+
+def _activate_modal_dialog(
+    dialog: tk.Toplevel,
+    initial_focus: tk.Widget | None = None,
+) -> None:
+    """Bring a modal dialog forward and move keyboard focus into it."""
+    dialog.wait_visibility()
+    dialog.lift()
+    dialog.grab_set()
+    dialog.focus_force()
+    if initial_focus is not None:
+        initial_focus.focus_set()
 
 
 def _centered_position(

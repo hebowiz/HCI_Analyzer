@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 from hci_analyzer.gui.vendor_discovery import (
     VendorDiscoveryWindow,
+    _activate_modal_dialog,
     _centered_position,
 )
 from hci_analyzer.vendor.project import (
@@ -84,6 +85,18 @@ class VendorDiscoveryWindowTests(unittest.TestCase):
         )
 
         self.assertEqual(position, (1420, 680))
+
+    def test_modal_dialog_is_raised_and_given_input_focus(self) -> None:
+        dialog = Mock()
+        input_widget = Mock()
+
+        _activate_modal_dialog(dialog, input_widget)
+
+        dialog.wait_visibility.assert_called_once_with()
+        dialog.lift.assert_called_once_with()
+        dialog.grab_set.assert_called_once_with()
+        dialog.focus_force.assert_called_once_with()
+        input_widget.focus_set.assert_called_once_with()
 
 
 if __name__ == "__main__":
