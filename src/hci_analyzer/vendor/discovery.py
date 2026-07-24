@@ -230,8 +230,8 @@ def build_definition_draft(
             default = _field_default(field_name, selected, evidence)
             if default is not None:
                 item["default"] = default
-            if selected.data_type == "enum_u8":
-                choices = _enum_choices(field_name, selected.offset, evidence)
+            if _is_enum_type(selected.data_type):
+                choices = _enum_choices(field_name, selected, evidence)
                 if choices:
                     item["choices"] = choices
         fields.append(item)
@@ -448,28 +448,47 @@ def _infer_enum_candidates(
     distinct_labels = {value for _, value in labelled}
     if len(distinct_labels) < 2:
         return []
+    type_specs = (
+        ("enum_u8", 1, "little"),
+        ("enum_u16_le", 2, "little"),
+        ("enum_u16_be", 2, "big"),
+        ("enum_u24_le", 3, "little"),
+        ("enum_u24_be", 3, "big"),
+        ("enum_u32_le", 4, "little"),
+        ("enum_u32_be", 4, "big"),
+    )
     candidates: list[FieldCandidate] = []
-    for offset in range(minimum_length):
-        by_label: dict[str, set[int]] = {}
-        for capture, label in labelled:
-            by_label.setdefault(label, set()).add(capture.parameters[offset])
-        if any(len(values) != 1 for values in by_label.values()):
+    for data_type, size, byte_order in type_specs:
+        if size > minimum_length:
             continue
-        encoded_values = {next(iter(values)) for values in by_label.values()}
-        if len(encoded_values) != len(by_label):
-            continue
-        candidates.append(
-            FieldCandidate(
-                name=name,
-                offset=offset,
-                data_type="enum_u8",
-                size=1,
-                confidence=_confidence(len(labelled), len(distinct_labels)),
-                sample_count=len(labelled),
-                distinct_value_count=len(distinct_labels),
+        for offset in range(minimum_length - size + 1):
+            by_label: dict[str, set[int]] = {}
+            for capture, label in labelled:
+                value = int.from_bytes(
+                    capture.parameters[offset : offset + size],
+                    byte_order,
+                )
+                by_label.setdefault(label, set()).add(value)
+            if any(len(values) != 1 for values in by_label.values()):
+                continue
+            encoded_values = {next(iter(values)) for values in by_label.values()}
+            if len(encoded_values) != len(by_label):
+                continue
+            candidates.append(
+                FieldCandidate(
+                    name=name,
+                    offset=offset,
+                    data_type=data_type,
+                    size=size,
+                    confidence=_confidence(
+                        len(labelled),
+                        len(distinct_labels),
+                    ),
+                    sample_count=len(labelled),
+                    distinct_value_count=len(distinct_labels),
+                )
             )
-        )
-    return candidates
+    return sorted(candidates, key=_candidate_sort_key)
 
 
 def _confidence(sample_count: int, distinct_count: int) -> str:
@@ -488,8 +507,16 @@ def _field_default(
     for capture in captures:
         if name not in capture.annotations:
             continue
-        if candidate.data_type == "enum_u8":
-            return capture.parameters[candidate.offset]
+        if _is_enum_type(candidate.data_type):
+            byte_order = (
+                "big" if candidate.data_type.endswith("_be") else "little"
+            )
+            return int.from_bytes(
+                capture.parameters[
+                    candidate.offset : candidate.offset + candidate.size
+                ],
+                byte_order,
+            )
         try:
             return _parse_integer(capture.annotations[name])
         except ValueError:
@@ -499,16 +526,26 @@ def _field_default(
 
 def _enum_choices(
     name: str,
-    offset: int,
+    candidate: FieldCandidate,
     captures: list[VendorCapture],
 ) -> dict[str, str]:
     choices: dict[str, str] = {}
+    byte_order = "big" if candidate.data_type.endswith("_be") else "little"
     for capture in captures:
         label = capture.annotations.get(name)
-        if label is None or offset >= len(capture.parameters):
+        end = candidate.offset + candidate.size
+        if label is None or end > len(capture.parameters):
             continue
-        choices[str(capture.parameters[offset])] = label
+        value = int.from_bytes(
+            capture.parameters[candidate.offset:end],
+            byte_order,
+        )
+        choices[str(value)] = label
     return choices
+
+
+def _is_enum_type(data_type: str) -> bool:
+    return data_type == "enum_u8" or data_type.startswith("enum_u")
 
 
 def _parse_integer(value: str) -> int:
@@ -536,6 +573,13 @@ def _candidate_sort_key(candidate: FieldCandidate) -> tuple[int, int, int, int]:
         "int48_le": 11,
         "uint48_be": 12,
         "int48_be": 13,
+        "enum_u8": 14,
+        "enum_u16_le": 15,
+        "enum_u16_be": 16,
+        "enum_u24_le": 17,
+        "enum_u24_be": 18,
+        "enum_u32_le": 19,
+        "enum_u32_be": 20,
     }
     return (
         confidence_order[candidate.confidence],

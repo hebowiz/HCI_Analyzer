@@ -91,6 +91,41 @@ class VendorDiscoveryTests(unittest.TestCase):
         self.assertEqual(analysis.candidates["mode"][0].offset, 0)
         self.assertEqual(analysis.candidates["mode"][0].data_type, "enum_u8")
 
+    def test_infers_two_byte_enum_with_non_contiguous_values(self) -> None:
+        captures = [
+            _capture(1, "23 01 AA", mode="A"),
+            _capture(2, "23 25 AA", mode="B"),
+            _capture(3, "12 01 AA", mode="C"),
+            _capture(4, "12 25 AA", mode="D"),
+        ]
+
+        analysis = analyze_captures(captures)
+
+        candidates = analysis.candidates["mode"]
+        little_endian = next(
+            item for item in candidates
+            if item.offset == 0 and item.data_type == "enum_u16_le"
+        )
+        big_endian = next(
+            item for item in candidates
+            if item.offset == 0 and item.data_type == "enum_u16_be"
+        )
+        self.assertEqual(little_endian.size, 2)
+        self.assertEqual(big_endian.size, 2)
+        self.assertFalse(
+            any(item.data_type == "enum_u8" for item in candidates)
+        )
+
+        draft = build_definition_draft(
+            analysis,
+            "Vendor_Set_Mode",
+            captures,
+        )
+        field = draft["commands"][0]["parameters"][0]
+        self.assertEqual(field["type"], "enum_u16_le")
+        self.assertEqual(field["choices"]["291"], "A")
+        self.assertEqual(field["choices"]["9490"], "D")
+
     def test_infers_48_bit_little_endian_address(self) -> None:
         prefix = "27 27 04 1B 00 00 30 00 "
         captures = [

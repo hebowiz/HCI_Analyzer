@@ -27,6 +27,7 @@ from hci_analyzer.vendor.live_capture import (
 )
 from hci_analyzer.vendor.project import (
     MANUAL_FIELD_TYPES,
+    NUMBER_FORMATS,
     PARAMETER_KINDS,
     UserParameter,
     VendorDiscoveryProject,
@@ -50,6 +51,13 @@ PARAMETER_KIND_LABELS = {
 }
 PARAMETER_KIND_VALUES = {
     label: value for value, label in PARAMETER_KIND_LABELS.items()
+}
+NUMBER_FORMAT_LABELS = {
+    "decimal": "10進",
+    "hex": "16進",
+}
+NUMBER_FORMAT_VALUES = {
+    label: value for value, label in NUMBER_FORMAT_LABELS.items()
 }
 PARAMETER_STATUS_LABELS = {
     "not_analyzed": "未解析",
@@ -1138,6 +1146,12 @@ class _ParameterDialog:
             value=PARAMETER_KIND_LABELS.get(initial_kind, initial_kind)
         )
         unit = tk.StringVar(value=self._parameter.unit if self._parameter else "")
+        initial_number_format = (
+            self._parameter.number_format if self._parameter else "decimal"
+        )
+        number_format = tk.StringVar(
+            value=NUMBER_FORMAT_LABELS[initial_number_format]
+        )
         choices = tk.StringVar(
             value=(
                 ", ".join(self._parameter.choices)
@@ -1153,6 +1167,7 @@ class _ParameterDialog:
             ("表示名", display, "entry"),
             ("種類", kind, "kind"),
             ("単位", unit, "entry"),
+            ("JSON数値表記", number_format, "number_format"),
             ("選択肢（カンマ区切り）", choices, "entry"),
             ("説明", description, "entry"),
         )
@@ -1172,6 +1187,17 @@ class _ParameterDialog:
                     state="readonly",
                     width=34,
                 )
+            elif editor == "number_format":
+                widget = ttk.Combobox(
+                    dialog,
+                    textvariable=variable,
+                    values=[
+                        NUMBER_FORMAT_LABELS[value]
+                        for value in NUMBER_FORMATS
+                    ],
+                    state="readonly",
+                    width=34,
+                )
             else:
                 widget = ttk.Entry(dialog, textvariable=variable, width=37)
             widget.grid(row=row, column=1, padx=(0, 10), pady=5)
@@ -1180,6 +1206,10 @@ class _ParameterDialog:
 
         def accept() -> None:
             selected_kind = PARAMETER_KIND_VALUES.get(kind.get(), kind.get())
+            selected_number_format = NUMBER_FORMAT_VALUES.get(
+                number_format.get(),
+                number_format.get(),
+            )
             preserve_inference = (
                 self._parameter is not None
                 and selected_kind == self._parameter.kind
@@ -1195,6 +1225,7 @@ class _ParameterDialog:
                 display_name=display.get().strip(),
                 kind=selected_kind,
                 unit=unit.get().strip(),
+                number_format=selected_number_format,
                 description=description.get().strip(),
                 choices=[
                     value.strip()

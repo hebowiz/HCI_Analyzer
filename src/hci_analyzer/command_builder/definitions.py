@@ -56,6 +56,7 @@ class ParameterDefinition:
     allowed_values: tuple[int, ...] = ()
     byte_offset: int | None = None
     encoding_type: str | None = None
+    number_format: str = "decimal"
 
 
 @dataclass(slots=True, frozen=True)

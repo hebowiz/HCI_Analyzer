@@ -6,7 +6,14 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from hci_analyzer.gui.command_console import CommandConsoleWindow
+from hci_analyzer.command_builder.definitions import (
+    ParameterDefinition,
+    ParameterKind,
+)
+from hci_analyzer.gui.command_console import (
+    CommandConsoleWindow,
+    _format_parameter_input,
+)
 
 
 class CommandConsoleWindowTests(unittest.TestCase):
@@ -113,6 +120,36 @@ class CommandConsoleWindowTests(unittest.TestCase):
             -1,
             "units",
         )
+
+    def test_hex_parameter_input_uses_type_size_and_prefix(self) -> None:
+        parameter = ParameterDefinition(
+            name="address",
+            label="Address",
+            kind=ParameterKind.INTEGER,
+            size=6,
+            default=0x00006BC6967E,
+            number_format="hex",
+        )
+
+        self.assertEqual(
+            _format_parameter_input(parameter, parameter.default),
+            "0x00006BC6967E",
+        )
+        self.assertEqual(
+            _format_parameter_input(parameter, "0x1234"),
+            "0x000000001234",
+        )
+
+    def test_decimal_parameter_input_keeps_decimal_text(self) -> None:
+        parameter = ParameterDefinition(
+            name="channel",
+            label="Channel",
+            kind=ParameterKind.INTEGER,
+            size=1,
+            default=19,
+        )
+
+        self.assertEqual(_format_parameter_input(parameter, 19), "19")
 
 if __name__ == "__main__":
     unittest.main()

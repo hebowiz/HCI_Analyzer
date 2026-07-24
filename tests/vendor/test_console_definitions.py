@@ -143,6 +143,91 @@ class VendorConsoleDefinitionTests(unittest.TestCase):
         self.assertEqual(encoded, bytes.fromhex("BC 9A 78 56 34 12 AA"))
         self.assertEqual(decoded["address"], 0x123456789ABC)
 
+    def test_enum_types_from_one_to_four_bytes_are_encoded_and_decoded(
+        self,
+    ) -> None:
+        cases = (
+            ("enum_u8", 0x23, "23"),
+            ("enum_u16_le", 0x0123, "23 01"),
+            ("enum_u16_be", 0x0123, "01 23"),
+            ("enum_u24_le", 0x123456, "56 34 12"),
+            ("enum_u24_be", 0x123456, "12 34 56"),
+            ("enum_u32_le", 0x12345678, "78 56 34 12"),
+            ("enum_u32_be", 0x12345678, "12 34 56 78"),
+        )
+        for data_type, value, expected_hex in cases:
+            with self.subTest(data_type=data_type):
+                size = len(bytes.fromhex(expected_hex))
+                payload = {
+                    "schema_version": 1,
+                    "commands": [
+                        {
+                            "opcode": "0xFC41",
+                            "name": "Vendor_Set_Mode",
+                            "parameter_length": size,
+                            "parameter_template_hex": "00 " * size,
+                            "parameters": [
+                                {
+                                    "name": "mode",
+                                    "offset": 0,
+                                    "type": data_type,
+                                    "number_format": "hex",
+                                    "default": hex(value),
+                                    "choices": {
+                                        hex(value): "A",
+                                        hex(value + 1): "B",
+                                    },
+                                }
+                            ],
+                            "response": {"kind": "unknown"},
+                        }
+                    ],
+                }
+
+                loaded = _load_payload(payload)
+                definition = loaded.definitions[0]
+                encoded = encode_vendor_parameters(
+                    definition,
+                    {"mode": value},
+                )
+                decoded = decode_vendor_parameters(definition, encoded)
+
+                self.assertEqual(encoded, bytes.fromhex(expected_hex))
+                self.assertEqual(
+                    decoded["mode"],
+                    f"0x{value:0{size * 2}X}",
+                )
+                self.assertEqual(decoded["mode_name"], "A")
+
+    def test_rejects_unknown_number_format(self) -> None:
+        payload = _definition_payload()
+        payload["commands"][0]["parameters"][0]["number_format"] = "binary"
+
+        with self.assertRaisesRegex(ValueError, "number_format"):
+            _load_payload(payload)
+
+    def test_decimal_string_default_is_loaded_as_integer(self) -> None:
+        payload = _definition_payload()
+        payload["commands"][0]["parameters"][0]["default"] = "19"
+
+        loaded = _load_payload(payload)
+
+        self.assertEqual(
+            loaded.definitions[0].parameters[0].default,
+            19,
+        )
+
+    def test_signed_hexadecimal_string_default_is_loaded_as_integer(self) -> None:
+        payload = _definition_payload()
+        payload["commands"][0]["parameters"][1]["default"] = "-0x0A"
+
+        loaded = _load_payload(payload)
+
+        self.assertEqual(
+            loaded.definitions[0].parameters[1].default,
+            -10,
+        )
+
 
 def _load_payload(payload: dict[str, object]):
     directory = tempfile.TemporaryDirectory()

@@ -61,6 +61,7 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
                 name="phy",
                 display_name="PHY",
                 kind="enum",
+                number_format="hex",
                 choices=["LE_1M", "LE_2M"],
             )
         )
@@ -72,6 +73,7 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
 
         self.assertEqual(loaded_project.opcode, 0xFC41)
         self.assertEqual(loaded_project.parameters[0].choices, ["LE_1M", "LE_2M"])
+        self.assertEqual(loaded_project.parameters[0].number_format, "hex")
         self.assertEqual(
             loaded_captures[0].vendor_capture.annotations["phy"],
             "LE_2M",
@@ -125,6 +127,7 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
             name="address",
             display_name="Address",
             kind="unsigned",
+            number_format="hex",
         )
         parameter.set_manual_candidate(8, "uint48_le")
         project = VendorDiscoveryProject(
@@ -139,11 +142,40 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
         self.assertEqual(field["offset"], 8)
         self.assertEqual(field["type"], "uint48_le")
         self.assertEqual(field["size"], 6)
-        self.assertEqual(field["default"], 0x00006BC6967E)
+        self.assertEqual(field["default"], "0x00006BC6967E")
         self.assertEqual(
             parameter.confirmed_candidate["source"],
             "manual",
         )
+
+    def test_manual_two_byte_enum_exports_non_contiguous_choices(self) -> None:
+        captures = [
+            _capture(1, "23 01 AA", mode="A"),
+            _capture(2, "12 25 AA", mode="B"),
+        ]
+        parameter = UserParameter(
+            name="mode",
+            display_name="Mode",
+            kind="enum",
+            number_format="hex",
+            choices=["A", "B"],
+        )
+        project = VendorDiscoveryProject(
+            opcode=0xFC41,
+            command_name="Vendor_Set_Mode",
+            parameters=[parameter],
+        )
+
+        project.set_manual_layout("mode", 0, "enum_u16_le", 3)
+        definition = build_console_definition(project, captures)
+
+        field = definition["commands"][0]["parameters"][0]
+        self.assertEqual(field["type"], "enum_u16_le")
+        self.assertEqual(field["size"], 2)
+        self.assertEqual(field["number_format"], "hex")
+        self.assertEqual(field["default"], "0x0123")
+        self.assertEqual(field["choices"]["0x0123"], "A")
+        self.assertEqual(field["choices"]["0x2512"], "B")
 
     def test_manual_layout_rejects_type_incompatible_with_parameter_kind(self) -> None:
         parameter = UserParameter(

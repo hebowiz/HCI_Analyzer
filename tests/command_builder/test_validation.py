@@ -38,6 +38,25 @@ class CommandValidatorTests(unittest.TestCase):
         self.assertEqual(result.normalized_values["TX_Channel"], 8)
         self.assertEqual(result.normalized_values["Test_Data_Length"], 37)
 
+    def test_negative_hex_integer_input_is_normalized(self) -> None:
+        result = self.validator.validate(
+            COMMAND_DEFINITIONS_BY_OPCODE[0x207B],
+            {
+                "TX_Channel": 19,
+                "Test_Data_Length": 37,
+                "Packet_Payload": 0,
+                "PHY": 1,
+                "CTE_Length": 2,
+                "CTE_Type": 1,
+                "Antenna_IDs": [1, 2],
+                "TX_Power_Mode": 0,
+                "TX_Power_Level": "-0x05",
+            },
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(result.normalized_values["TX_Power_Level"], -5)
+
     def test_cte_length_one_is_rejected(self) -> None:
         result = self.validator.validate(
             COMMAND_DEFINITIONS_BY_OPCODE[0x204F],

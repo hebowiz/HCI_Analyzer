@@ -112,12 +112,15 @@ Commandへ参考情報として関連付けるが、確定的な応答関連付�
 利用者はパラメーターごとに次の情報を定義する。
 
 ```text
-Name / Display Name / Kind / Unit / Choices / Description
+Name / Display Name / Kind / Unit / JSON Number Format / Choices / Description
 ```
 
 Kindは`auto`、`unsigned`、`signed`、`enum`、`boolean`、`bit_field`、
 `raw_bytes`を持つ。初版の自動推定は`auto`、整数、Enumを対象とし、
 Bit FieldとRaw Bytesはユーザー定義を保持するが自動候補を生成しない。
+
+JSON Number Formatは`decimal`または`hex`とし、パラメーターごとに指定する。
+既存プロジェクトでこの項目がない場合は`decimal`として読み込む。
 
 一覧から複数キャプチャーを選択し、現在選択中のパラメーターについて既知値を
 一括で割り当てる。RACE行には既知値を割り当てない。
@@ -137,6 +140,9 @@ Bit FieldとRaw Bytesはユーザー定義を保持するが自動候補を生�
 - `uint48_le` / `int48_le`
 - `uint48_be` / `int48_be`
 - `enum_u8`
+- `enum_u16_le` / `enum_u16_be`
+- `enum_u24_le` / `enum_u24_be`
+- `enum_u32_le` / `enum_u32_be`
 
 候補はOffset、型、サイズ、サンプル数、異なる値の数、Confidenceを持つ。
 
@@ -152,6 +158,14 @@ Bit FieldとRaw Bytesはユーザー定義を保持するが自動候補を生�
 48 bit型はBluetooth Device Addressなどの6 byte整数を対象とする。例えば既知値
 `0x00006BC6967E`に対して、Parameter内の`7E 96 C6 6B 00 00`を
 `uint48_le`候補として検出する。
+
+Enum値は連続している必要はない。例えば`A = 0x0123`、
+`B = 0x2512`という対応を`enum_u16_le`として保持できる。この場合のByte列は
+それぞれ`23 01`、`12 25`となる。
+
+Enumの既知値として選択肢名だけを入力した場合、Byte列からLittle Endianと
+Big Endianを一意に判定できないことがある。その場合は両方を候補として表示し、
+利用者が候補確定または配置の手動設定で選択する。
 
 ### 8.1 配置の手動設定
 
@@ -188,6 +202,7 @@ Byte重複を検証する。
 - 先頭候補を使ったOffset／Type案
 - 最初のキャプチャを使った`parameter_template_hex`
 - 推定値から取得したDefaultとEnum Choices
+- パラメーターごとのJSON Number Format
 - `review_required: true`
 - 未確定のResponse Kind
 
@@ -203,6 +218,13 @@ Schema、Opcode、Template長、Field Offset、型、範囲、Field重複を検�
 送信Parameterは`parameter_template_hex`を複製し、各FieldのOffsetへGUI入力値を
 指定型・Byte Orderで上書きして生成する。これにより、意味が未解明の固定Byteを
 元キャプチャと同じ値で保持する。
+
+`decimal`指定時はDefaultをJSON数値、Enum Choicesのキーを10進文字列で出力する。
+`hex`指定時はDefaultとEnum Choicesのキーを型サイズに合わせてゼロ埋めした
+`"0x0123"`形式の文字列で出力する。Command ConsoleはJSON数値、10進文字列、
+16進文字列を内部整数へ正規化してから範囲とChoicesを検証する。送信コマンドの
+可読ログでは、`hex`指定されたVendorパラメーターを同じ桁数の16進文字列で
+表示する。Command Consoleの数値入力欄でもDefaultと復元値へ同じ表記を適用する。
 
 同じByteを複数Fieldが使用する定義、組み込みOpcodeを置換する定義、
 同名Commandが重複する定義は拒否する。読み込んだ定義は永続化せず、

@@ -32,6 +32,12 @@ SUPPORTED_FIELD_TYPES = {
     "uint48_be": (6, False, "big"),
     "int48_be": (6, True, "big"),
     "enum_u8": (1, False, "little"),
+    "enum_u16_le": (2, False, "little"),
+    "enum_u16_be": (2, False, "big"),
+    "enum_u24_le": (3, False, "little"),
+    "enum_u24_be": (3, False, "big"),
+    "enum_u32_le": (4, False, "little"),
+    "enum_u32_be": (4, False, "big"),
 }
 @dataclass(slots=True, frozen=True)
 class LoadedVendorDefinitions:
@@ -129,7 +135,11 @@ def decode_vendor_parameters(
             byte_order,
             signed=signed,
         )
-        decoded[parameter.name] = value
+        decoded[parameter.name] = _display_number(
+            value,
+            size,
+            parameter.number_format,
+        )
         if parameter.choices and value in parameter.choices:
             decoded[f"{parameter.name}_name"] = parameter.choices[value]
     return decoded
@@ -249,13 +259,21 @@ def _load_parameter(
     kind = ParameterKind.ENUM if choices else (
         ParameterKind.SIGNED_INTEGER if signed else ParameterKind.INTEGER
     )
-    default = item.get("default")
-    if not isinstance(default, int) or isinstance(default, bool):
+    raw_default = item.get("default")
+    if raw_default is None:
         default = int.from_bytes(
             template[offset : offset + size],
             byte_order,
             signed=signed,
         )
+    else:
+        try:
+            default = _parse_integer_value(raw_default)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{location}.default must be an integer, decimal string, "
+                "or hexadecimal string"
+            ) from exc
     if not minimum <= default <= maximum:
         raise ValueError(f"{location}.default is outside the type range")
     if choices and default not in choices:
@@ -266,6 +284,11 @@ def _load_parameter(
     unit = item.get("unit")
     if not isinstance(unit, str):
         unit = None
+    number_format = item.get("number_format", "decimal")
+    if number_format not in ("decimal", "hex"):
+        raise ValueError(
+            f"{location}.number_format must be decimal or hex"
+        )
     return ParameterDefinition(
         name=name.strip(),
         label=label.strip(),
@@ -278,6 +301,7 @@ def _load_parameter(
         unit=unit,
         byte_offset=offset,
         encoding_type=encoding_type,
+        number_format=number_format,
     )
 
 
@@ -318,13 +342,39 @@ def _parse_choices(value: Any, location: str) -> dict[int, str]:
     choices: dict[int, str] = {}
     for raw_key, raw_label in value.items():
         try:
-            key = int(raw_key, 0) if isinstance(raw_key, str) else int(raw_key)
+            key = _parse_integer_value(raw_key)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{location}.choices contains an invalid value") from exc
         if not isinstance(raw_label, str) or not raw_label:
             raise ValueError(f"{location}.choices labels must be strings")
         choices[key] = raw_label
     return choices
+
+
+def _parse_integer_value(value: object) -> int:
+    if isinstance(value, bool):
+        raise TypeError("Boolean is not an integer value")
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        raise TypeError("Value is not an integer or string")
+    text = value.strip()
+    if not text:
+        raise ValueError("Integer string is empty")
+    signless = text[1:] if text.startswith(("+", "-")) else text
+    base = 16 if signless.lower().startswith("0x") else 10
+    return int(text, base)
+
+
+def _display_number(
+    value: int,
+    size: int,
+    number_format: str,
+) -> int | str:
+    if number_format != "hex":
+        return value
+    sign = "-" if value < 0 else ""
+    return f"{sign}0x{abs(value):0{size * 2}X}"
 
 
 def _integer_range(size: int, signed: bool) -> tuple[int, int]:

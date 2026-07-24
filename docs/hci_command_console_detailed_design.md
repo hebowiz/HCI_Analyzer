@@ -385,9 +385,26 @@ OGF `0x3F`以外のOpcode、組み込みOpcodeとの重複、Template長不一�
 - `uint32_le` / `int32_le`
 - `uint32_be` / `int32_be`
 - `enum_u8`
+- `enum_u16_le` / `enum_u16_be`
+- `enum_u24_le` / `enum_u24_be`
+- `enum_u32_le` / `enum_u32_be`
 
 読込後は`Vendor Specific`カテゴリへ追加する。Parameter Form、入力検証、
 Packet Preview、値キャッシュ、送信処理は組み込みCommandと共用する。
+
+外部定義の`default`およびEnum `choices`のキーは、JSON整数、10進文字列、
+`0x`接頭辞付き16進文字列を受け付ける。読み込み時に内部整数へ正規化し、
+以降のプルダウン表示、範囲検証、エンコード処理では表記方法に依存しない。
+
+Vendor Parameterの`number_format`は`decimal`または`hex`を保持する。送信コマンド
+を外部定義で再デコードしてログ表示する際、`decimal`は整数、`hex`は型サイズに
+合わせてゼロ埋めした`0x`接頭辞付き文字列とする。解析結果JSON行とSUMMARY行の
+両方へ同じ表記を適用する。
+
+数値入力欄についても、`hex`指定時はDefault、リセット値、値キャッシュからの
+復元値を型サイズに合わせた16進文字列で表示する。入力検証は正負の
+`0x`接頭辞付き文字列を整数へ正規化してから行う。Enumは従来どおり選択肢名と
+16進値を組み合わせたプルダウン表示とする。
 
 送信時は`parameter_template_hex`を複製し、各Parameterを`offset`と`type`に
 従って上書きする。定義されていないByteはTemplate値を維持する。

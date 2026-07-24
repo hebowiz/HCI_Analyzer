@@ -14,6 +14,7 @@ from hci_analyzer.command_builder.definitions import (
     SELECTABLE_COMMAND_DEFINITIONS,
 )
 from hci_analyzer.models import ParseResult
+from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 
 
@@ -224,6 +225,36 @@ class CommandConsoleSupportTests(unittest.TestCase):
             "Vendor_Set_Channel",
         )
         self.assertEqual(parsed.decoded["parameters"]["channel"], 19)
+
+    def test_vendor_hex_parameter_is_shown_as_hexadecimal_in_log(self) -> None:
+        payload = _vendor_definition_payload()
+        parameter = payload["commands"][0]["parameters"][0]
+        parameter["number_format"] = "hex"
+        parameter["default"] = "0x13"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vendor.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            self.application._window.definition_paths = (path,)
+            self.application._load_vendor_definitions()
+        parsed = HciCommandEncoder()._parser.parse_hex_string(
+            "01 41 FC 01 13"
+        )
+        event = TransportEvent(
+            timestamp=datetime.now().astimezone(),
+            kind=TransportEventKind.TRANSMITTED,
+            source="Test",
+            parsed=parsed,
+        )
+
+        self.application._handle_transport_event(event)
+        log = "\n".join(format_transport_event(event))
+
+        self.assertEqual(
+            parsed.decoded["parameters"]["channel"],
+            "0x13",
+        )
+        self.assertIn('"channel": "0x13"', log)
+        self.assertIn("Channel                : 0x13", log)
 
     def test_port_connection_events_do_not_reset_capability_result(self) -> None:
         self.application._command_support = {0x201D: False}

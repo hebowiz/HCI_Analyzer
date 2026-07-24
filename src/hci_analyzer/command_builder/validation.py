@@ -176,7 +176,9 @@ class CommandValidator:
             return value
         if isinstance(value, str):
             text = value.strip()
-            return int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+            signless = text[1:] if text.startswith(("+", "-")) else text
+            base = 16 if signless.lower().startswith("0x") else 10
+            return int(text, base)
         raise TypeError
 
     @staticmethod

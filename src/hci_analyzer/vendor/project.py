@@ -22,6 +22,7 @@ PARAMETER_KINDS = (
     "bit_field",
     "raw_bytes",
 )
+NUMBER_FORMATS = ("decimal", "hex")
 MANUAL_FIELD_TYPES = tuple(SUPPORTED_FIELD_TYPES)
 
 
@@ -33,6 +34,7 @@ class UserParameter:
     display_name: str
     kind: str = "auto"
     unit: str = ""
+    number_format: str = "decimal"
     description: str = ""
     choices: list[str] = field(default_factory=list)
     status: str = "not_analyzed"
@@ -48,6 +50,10 @@ class UserParameter:
             raise ValueError("Display name is required")
         if self.kind not in PARAMETER_KINDS:
             raise ValueError(f"Unsupported parameter kind: {self.kind}")
+        if self.number_format not in NUMBER_FORMATS:
+            raise ValueError(
+                f"Unsupported JSON number format: {self.number_format}"
+            )
         if self.kind in ("enum", "boolean") and len(self.choices) < 2:
             raise ValueError("Enum and Boolean parameters require at least two choices")
 
@@ -90,8 +96,10 @@ class UserParameter:
             raise ValueError("Unsigned parameters require a uint field type")
         if self.kind == "signed" and not data_type.startswith("int"):
             raise ValueError("Signed parameters require an int field type")
-        if self.kind in ("enum", "boolean") and data_type != "enum_u8":
-            raise ValueError("Enum and Boolean parameters require enum_u8")
+        if self.kind == "enum" and not _is_enum_type(data_type):
+            raise ValueError("Enum parameters require an enum field type")
+        if self.kind == "boolean" and data_type != "enum_u8":
+            raise ValueError("Boolean parameters require enum_u8")
         if self.kind in ("bit_field", "raw_bytes"):
             raise ValueError(
                 "Bit field and raw byte manual layouts are not supported yet"
@@ -220,6 +228,7 @@ def load_project(path: Path) -> tuple[VendorDiscoveryProject, list[DiscoveryCapt
             display_name=str(raw_parameter.get("display_name", "")),
             kind=str(raw_parameter.get("kind", "auto")),
             unit=str(raw_parameter.get("unit", "")),
+            number_format=str(raw_parameter.get("number_format", "decimal")),
             description=str(raw_parameter.get("description", "")),
             choices=[
                 str(value)
@@ -276,6 +285,7 @@ def build_console_definition(
             "offset": candidate["offset"],
             "type": candidate["type"],
             "size": candidate["size"],
+            "number_format": parameter.number_format,
         }
         if parameter.unit:
             field["unit"] = parameter.unit
@@ -308,20 +318,38 @@ def build_console_definition(
             occupied[byte_index] = parameter.name
         signed = data_type.startswith("int")
         byte_order = "big" if data_type.endswith("_be") else "little"
-        field["default"] = int.from_bytes(
+        default = int.from_bytes(
             evidence[0].parameters[offset : offset + size],
             byte_order,
             signed=signed,
         )
-        if data_type == "enum_u8":
+        field["default"] = _json_number(
+            default,
+            size,
+            parameter.number_format,
+        )
+        if _is_enum_type(data_type):
             choices: dict[str, str] = {}
+            byte_order = "big" if data_type.endswith("_be") else "little"
             for capture in evidence:
                 label = capture.annotations.get(parameter.name)
-                if label is not None and offset < len(capture.parameters):
-                    choices[str(capture.parameters[offset])] = label
+                if label is not None and offset + size <= len(capture.parameters):
+                    value = int.from_bytes(
+                        capture.parameters[offset : offset + size],
+                        byte_order,
+                    )
+                    choices[
+                        str(_json_number(
+                            value,
+                            size,
+                            parameter.number_format,
+                        ))
+                    ] = label
             if choices:
                 if str(field["default"]) not in choices:
-                    field["default"] = int(next(iter(choices)))
+                    field["default"] = next(iter(choices))
+                    if parameter.number_format == "decimal":
+                        field["default"] = int(field["default"])
                 field["choices"] = choices
         fields.append(field)
     if not fields:
@@ -352,9 +380,22 @@ def _candidate_matches_kind(candidate: FieldCandidate, kind: str) -> bool:
         return candidate.data_type.startswith("uint")
     if kind == "signed":
         return candidate.data_type.startswith("int")
-    if kind in ("enum", "boolean"):
+    if kind == "enum":
+        return _is_enum_type(candidate.data_type)
+    if kind == "boolean":
         return candidate.data_type == "enum_u8"
     return False
+
+
+def _is_enum_type(data_type: str) -> bool:
+    return data_type == "enum_u8" or data_type.startswith("enum_u")
+
+
+def _json_number(value: int, size: int, number_format: str) -> int | str:
+    if number_format == "decimal":
+        return value
+    sign = "-" if value < 0 else ""
+    return f"{sign}0x{abs(value):0{size * 2}X}"
 
 
 def _validate_confirmed_layouts(

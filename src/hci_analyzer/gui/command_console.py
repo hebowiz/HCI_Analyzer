@@ -291,6 +291,14 @@ class CommandConsoleWindow:
 
     def set_parameter_values(self, values: Mapping[str, Any]) -> None:
         """Set the generated form from cached or default values."""
+        parameters = {
+            parameter.name: parameter
+            for parameter in (
+                self._current_definition.parameters
+                if self._current_definition is not None
+                else ()
+            )
+        }
         self._suspend_change_callback = True
         try:
             for name, value in values.items():
@@ -312,7 +320,12 @@ class CommandConsoleWindow:
                     )
                     variable.set(display)
                 else:
-                    variable.set(str(value))
+                    parameter = parameters.get(name)
+                    variable.set(
+                        _format_parameter_input(parameter, value)
+                        if parameter is not None
+                        else str(value)
+                    )
         finally:
             self._suspend_change_callback = False
         self._notify_values_changed()
@@ -685,7 +698,12 @@ class CommandConsoleWindow:
             )
             self._enum_detail_labels[parameter.name] = detail
         else:
-            variable = tk.StringVar(value=str(parameter.default))
+            variable = tk.StringVar(
+                value=_format_parameter_input(
+                    parameter,
+                    parameter.default,
+                )
+            )
             variable.trace_add("write", lambda *_args: self._notify_values_changed())
             widget = ttk.Entry(
                 self._parameter_frame,
@@ -709,7 +727,6 @@ class CommandConsoleWindow:
             pady=(0, 2),
         )
         self._error_labels[parameter.name] = error
-
     def _populate_commands(self) -> None:
         category = self._category_variable.get()
         commands = list(
@@ -924,3 +941,32 @@ class CommandConsoleWindow:
         self._log_text.insert(tk.END, "\n".join(lines) + "\n")
         self._log_text.see(tk.END)
         self._log_text.configure(state=tk.DISABLED)
+
+
+def _format_parameter_input(
+    parameter: ParameterDefinition,
+    value: object,
+) -> str:
+    """Format a scalar value for its generated Console input widget."""
+    if parameter.number_format != "hex":
+        return str(value)
+    try:
+        number = _parse_display_integer(value)
+    except (TypeError, ValueError):
+        return str(value)
+    size = parameter.size if isinstance(parameter.size, int) else 1
+    sign = "-" if number < 0 else ""
+    return f"{sign}0x{abs(number):0{size * 2}X}"
+
+
+def _parse_display_integer(value: object) -> int:
+    if isinstance(value, bool):
+        raise TypeError
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        raise TypeError
+    text = value.strip()
+    signless = text[1:] if text.startswith(("+", "-")) else text
+    base = 16 if signless.lower().startswith("0x") else 10
+    return int(text, base)
