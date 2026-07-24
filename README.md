@@ -9,7 +9,7 @@ UART HCI（H4）で送受信されるBluetooth LE RF PHY TestのCommand/Eventを
 |---|---|
 | HCI Analyzer | 最大2つのシリアルポートを受信専用で監視し、HCI通信を解析・保存する |
 | HCI Command Console | GUIからHCI Commandを送信してControllerを制御する |
-| HCI Vendor Command Discovery | AnalyzerのJSONLからベンダー固有Commandのパラメーター配置候補を調べる |
+| HCI Vendor Command Discovery | 最大2ポートからベンダー固有Commandをリアルタイム取得し、パラメーター配置候補を調べる |
 
 ## セットアップ
 
@@ -117,8 +117,9 @@ python command_console.py
 
 ## HCI Vendor Command Discovery
 
-Analyzerが保存した1つ以上のJSONLを比較し、ベンダー固有CommandのParameter内で
-既知の設定値が格納されている可能性がある位置と型を推定する補助ツールです。
+最大2つのシリアルポートを監視し、ベンダー固有HCI Commandをリアルタイムで
+検出して、既知の設定値がParameter内に格納されている位置と型を推定する
+補助ツールです。従来のAnalyzer JSONLも追加キャプチャーとして読み込めます。
 
 ### 起動
 
@@ -134,20 +135,29 @@ python vendor_discovery.py
 
 ### 基本操作
 
-1. Analyzerで、同じベンダーCommandの設定値を原則1項目ずつ変えて記録する
-2. Vendor Discoveryで複数のJSONLを読み込む
-3. Opcodeを選択する
-4. 各キャプチャを選び、`channel=19, power=-10`形式で実際の既知値を入力する
-5. 「差分・型候補を解析」を押す
-6. バイト位置、符号、little-endian／big-endian候補を確認する
-7. 「定義案JSON出力」でレビュー用の定義案を保存する
-8. Command Consoleの「Vendor定義読込」でJSONを選択する
-9. 警告内容とPacket Previewを確認してからControllerへ送信する
+1. Analyzerと同じ2ポート・共通ボーレート設定で取得を開始する
+2. Vendor CommandとRACEを時系列一覧で確認する
+3. 不要なキャプチャーを選択して除外する（Undo可能）
+4. 解析するVendor Opcodeを選択する
+5. PHY、Channelなどのパラメーターをユーザー定義する
+6. キャプチャーを選び、選択パラメーターの既知値を割り当てる
+7. パラメーター単位で位置・型候補を解析し、候補を確定する
+   - 自動候補が正しくない場合は「配置を手動設定」でOffsetと型を指定する
+8. 解析プロジェクトを保存し、別のパラメーター解析を継続する
+9. 完成後にCommand Console用定義を出力する
 
-初版が自動推定する型は、8／16／32 bitの符号あり・なし整数、
+キャプチャーは重複をまとめず、検出時刻順に1件ずつ表示するのが標準です。
+`Group duplicate captures`を有効にした場合だけ、同一Protocol、識別子、
+Parameter／Payloadのキャプチャーを表示上でまとめます。
+
+RACEはType、Command ID、Payloadを一覧へ表示しますが、現在はパラメーター
+推定およびCommand Console定義出力の対象外です。
+
+初版が自動推定する型は、8／16／32／48 bitの符号あり・なし整数、
 little-endian／big-endian、および1 byte Enumです。出力結果は候補であり、
-`review_required: true`として保存されます。実機送信へ使用する前に、必ず内容を
-確認してください。
+定義案は`review_required: true`として保存されます。ユーザーが候補を明示的に
+確定したパラメーターからはConsole用完成定義を出力できます。いずれも実機送信へ
+使用する前に、必ず内容を確認してください。
 
 未解明のParameter Byteは、最初のキャプチャを
 `parameter_template_hex`として保持します。Command Consoleはテンプレートを

@@ -403,6 +403,10 @@ def _infer_numeric_candidates(
         ("int32_le", 4, True, "little"),
         ("uint32_be", 4, False, "big"),
         ("int32_be", 4, True, "big"),
+        ("uint48_le", 6, False, "little"),
+        ("int48_le", 6, True, "little"),
+        ("uint48_be", 6, False, "big"),
+        ("int48_be", 6, True, "big"),
     )
     minimum_length = min(len(capture.parameters) for capture, _ in numeric_values)
     distinct = len({value for _, value in numeric_values})
@@ -528,6 +532,10 @@ def _candidate_sort_key(candidate: FieldCandidate) -> tuple[int, int, int, int]:
         "int32_le": 7,
         "uint32_be": 8,
         "int32_be": 9,
+        "uint48_le": 10,
+        "int48_le": 11,
+        "uint48_be": 12,
+        "int48_be": 13,
     }
     return (
         confidence_order[candidate.confidence],

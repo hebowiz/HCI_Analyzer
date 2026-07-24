@@ -27,10 +27,12 @@ SUPPORTED_FIELD_TYPES = {
     "int32_le": (4, True, "little"),
     "uint32_be": (4, False, "big"),
     "int32_be": (4, True, "big"),
+    "uint48_le": (6, False, "little"),
+    "int48_le": (6, True, "little"),
+    "uint48_be": (6, False, "big"),
+    "int48_be": (6, True, "big"),
     "enum_u8": (1, False, "little"),
 }
-
-
 @dataclass(slots=True, frozen=True)
 class LoadedVendorDefinitions:
     """Validated external definitions and their review state."""

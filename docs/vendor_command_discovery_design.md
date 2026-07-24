@@ -2,24 +2,50 @@
 
 ## 1. 目的
 
-HCI Vendor Command Discoveryは、HCI Analyzerが保存したJSONLを入力として、
-OGF `0x3F`のVendor Specific CommandをOpcode別に比較する補助ツールである。
+HCI Vendor Command Discoveryは、最大2つのシリアルポートからHCI通信を
+リアルタイム取得し、OGF `0x3F`のVendor Specific CommandをOpcode別に比較する
+補助ツールである。Analyzerが保存したJSONLの追加読込にも対応する。
 
 利用者が各キャプチャへ実験時の既知パラメーター値を付与し、ツールはCommand
 Parameter内の格納位置、整数型、符号、エンディアン、Enum候補を提示する。
-推定結果だけでコマンド定義を確定せず、レビュー必須のJSON定義案を出力する。
+利用者は解析対象Commandのパラメーターを自分で定義し、1項目ずつ既知値を
+キャプチャーへ割り当てる。推定候補を確定した結果は解析プロジェクトへ蓄積し、
+最終的にCommand Console用定義を出力する。
 
-## 2. 人とツールの役割
+## 2. リアルタイム取得
 
-### 2.1 利用者が行うこと
+- Analyzerと同じ`DualSerialMonitor`、`H4StreamDecoder`、`HciParser`を使用する
+- 最大2ポートを同時監視する
+- 同一ポートを2欄で選択した場合は1ポートだけ監視する
+- 2ポート共通ボーレートは最大3 Mbpsとする
+- 受信処理はGUIスレッドと分離し、Queue経由で画面へ反映する
+- シリアル設定の保存形式はAnalyzerを踏襲する
+- Discovery固有設定が存在しない初回はAnalyzerの保存値を初期値にする
+
+Vendor HCI Commandは解析対象として保存する。RACEはType、Command ID、
+Payloadを一覧表示するが、現時点ではパラメーター推定対象にしない。
+
+## 3. キャプチャー一覧
+
+標準表示は重複をまとめず、Timestamp順に1キャプチャー1行で表示する。
+オプション`Group duplicate captures`を有効にした場合だけ、Protocol、
+OpcodeまたはRACE Type／Command ID、Parameter／Payloadが同じ行を集約する。
+
+利用者は1件または複数件を選択して解析対象から削除できる。削除操作は
+Undo用スタックへ保持し、直前の削除単位で元の時系列位置へ復元できる。
+
+## 4. 人とツールの役割
+
+### 4.1 利用者が行うこと
 
 - コマンドの目的とパラメーター名を把握する
 - 安全な範囲で、原則1項目ずつ設定値を変更して通信を記録する
-- 各キャプチャへ実際に設定した`name=value`を入力する
+- PHY、Channelなどのパラメーター名、種別、選択肢を定義する
+- 選択したキャプチャーへ実際に設定した既知値を割り当てる
 - 推定候補を確認し、実機仕様と照合する
 - 定義を確定する前に実機で検証する
 
-### 2.2 ツールが行うこと
+### 4.2 ツールが行うこと
 
 - H4 CommandからOpcode、OGF、OCF、Parameterを抽出する
 - 同一Opcodeのキャプチャをグループ化する
@@ -29,9 +55,9 @@ Parameter内の格納位置、整数型、符号、エンディアン、Enum候�
 - 既知値と一致するデータ型候補を列挙する
 - レビュー必須の外部JSON定義案を生成する
 
-## 3. Analyzerの汎用ベンダー解析
+## 5. Analyzerの汎用ベンダー解析
 
-### 3.1 Vendor Specific Command
+### 5.1 Vendor Specific Command
 
 OpcodeはHCI標準と同じlittle-endianで読み、次式で分解する。
 
@@ -57,7 +83,7 @@ OGFが`0x3F`なら、静的Command定義に存在しなくても正常な
 }
 ```
 
-### 3.2 Vendor Command Response
+### 5.2 Vendor Command Response
 
 Command CompleteとCommand Statusに含まれるOpcodeのOGFが`0x3F`なら、
 静的Command定義がなくても正常なEventとして受理する。
@@ -66,7 +92,7 @@ Command CompleteのReturn ParameterレイアウトはVendor依存であるため
 固定長検証を行わずRAWを保持する。先頭Byteが存在する場合はStatus候補としても
 表示するが、その意味はVendor仕様で確認する。
 
-### 3.3 Vendor Specific Event
+### 5.3 Vendor Specific Event
 
 Event Code `0xFF`は`HCI_Vendor_Specific_Event`として受理し、
 Parameter Total LengthとParameter RAWを保持する。
@@ -74,28 +100,32 @@ Parameter Total LengthとParameter RAWを保持する。
 Event内に元CommandのOpcodeが含まれる保証はない。Discoveryでは直前のVendor
 Commandへ参考情報として関連付けるが、確定的な応答関連付けとは扱わない。
 
-## 4. JSONL読込
+## 6. JSONL読込
 
 複数のAnalyzer JSONLを同時に選択できる。新しい汎用ベンダー解析形式だけでなく、
 過去ログの`UNKNOWN_OPCODE`レコードもH4 RAWから再抽出する。
 
 不正JSON行は他の行の読込を止めず、読込警告として件数と内容を表示する。
 
-## 5. 注釈
+## 7. ユーザー定義パラメーターと既知値
 
-Treeviewで1つのキャプチャを選択し、次の形式で実験時の既知値を入力する。
+利用者はパラメーターごとに次の情報を定義する。
 
 ```text
-channel=19, power=-10, mode=tx
+Name / Display Name / Kind / Unit / Choices / Description
 ```
 
-区切りにはカンマ、セミコロン、改行を使用できる。値は文字列として保持し、
-整数推定時は10進数または`0x`付き16進数として解釈する。
+Kindは`auto`、`unsigned`、`signed`、`enum`、`boolean`、`bit_field`、
+`raw_bytes`を持つ。初版の自動推定は`auto`、整数、Enumを対象とし、
+Bit FieldとRaw Bytesはユーザー定義を保持するが自動候補を生成しない。
+
+一覧から複数キャプチャーを選択し、現在選択中のパラメーターについて既知値を
+一括で割り当てる。RACE行には既知値を割り当てない。
 
 同じパラメーターについて最低2キャプチャへ注釈が必要である。推定精度を上げる
 ため、3種類以上の値を含む4キャプチャ以上を推奨する。
 
-## 6. 自動推定
+## 8. 自動推定
 
 初版は次の型を、全Offsetに対して総当たりして既知値との完全一致を調べる。
 
@@ -104,6 +134,8 @@ channel=19, power=-10, mode=tx
 - `uint16_be` / `int16_be`
 - `uint32_le` / `int32_le`
 - `uint32_be` / `int32_be`
+- `uint48_le` / `int48_le`
+- `uint48_be` / `int48_be`
 - `enum_u8`
 
 候補はOffset、型、サイズ、サンプル数、異なる値の数、Confidenceを持つ。
@@ -117,7 +149,33 @@ channel=19, power=-10, mode=tx
 複数候補が一致する場合はすべて表示する。正値だけを使用した場合などは、
 符号あり・なしを一意に判定できないためである。
 
-## 7. 定義案出力
+48 bit型はBluetooth Device Addressなどの6 byte整数を対象とする。例えば既知値
+`0x00006BC6967E`に対して、Parameter内の`7E 96 C6 6B 00 00`を
+`uint48_le`候補として検出する。
+
+### 8.1 配置の手動設定
+
+自動推定候補が存在しない、または正しい候補が先頭にない場合、利用者は選択した
+パラメーターについてOffsetと型を直接指定できる。
+
+手動設定は`source: manual`を持つ確定候補として解析プロジェクトへ保存する。
+完成定義出力時に、型とSizeの一致、Parameter Template範囲、他フィールドとの
+Byte重複を検証する。
+
+## 9. 解析プロジェクト
+
+`vendor_projects/*.json`へ次を保存する。
+
+- 対象OpcodeとCommand Name
+- ユーザー定義パラメーター
+- パラメーターごとの候補と確定結果
+- Vendor HCIおよびRACEのキャプチャー
+- キャプチャーへ割り当てた既知値と関連応答
+
+プロジェクトを再度開くことで、パラメーターを1項目ずつ追加解析できる。
+`vendor_projects/*.json`はGit管理対象外とする。
+
+## 10. 定義案・完成定義出力
 
 既定保存先は`vendor_definitions/`とし、ファイル名は
 `vendor_0xXXXX_definition_draft.json`とする。定義案は次の情報を持つ。
@@ -150,7 +208,11 @@ Schema、Opcode、Template長、Field Offset、型、範囲、Field重複を検�
 同名Commandが重複する定義は拒否する。読み込んだ定義は永続化せず、
 Command Consoleを再起動した場合は再読込する。
 
-## 8. 制約
+全注釈から従来形式のレビュー必須定義案を出力できる。さらに、ユーザーが
+候補を確定したパラメーターだけを使用して、Command Consoleが直接読み込める
+完成定義を出力できる。未解明Byteは先頭キャプチャーのTemplate値を維持する。
+
+## 11. 制約
 
 次の形式は初版の自動推定対象外、または一意に推定できない可能性がある。
 

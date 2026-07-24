@@ -7,6 +7,8 @@ from pathlib import Path
 
 from hci_analyzer.command_builder.encoder import HciCommandEncoder
 from hci_analyzer.vendor.console_definitions import (
+    decode_vendor_parameters,
+    encode_vendor_parameters,
     load_vendor_console_definitions,
 )
 from hci_analyzer.vendor.discovery import (
@@ -107,6 +109,39 @@ class VendorConsoleDefinitionTests(unittest.TestCase):
         )
 
         self.assertEqual(encoded.frame, bytes.fromhex("01 41 FC 02 16 FF"))
+
+    def test_uint48_little_endian_is_encoded_and_decoded(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "commands": [
+                {
+                    "opcode": "0xFC41",
+                    "name": "Vendor_Set_Address",
+                    "parameter_length": 7,
+                    "parameter_template_hex": "00 00 00 00 00 00 AA",
+                    "parameters": [
+                        {
+                            "name": "address",
+                            "offset": 0,
+                            "type": "uint48_le",
+                            "default": 0x00006BC6967E,
+                        }
+                    ],
+                    "response": {"kind": "unknown"},
+                }
+            ],
+        }
+
+        loaded = _load_payload(payload)
+        definition = loaded.definitions[0]
+        encoded = encode_vendor_parameters(
+            definition,
+            {"address": 0x123456789ABC},
+        )
+        decoded = decode_vendor_parameters(definition, encoded)
+
+        self.assertEqual(encoded, bytes.fromhex("BC 9A 78 56 34 12 AA"))
+        self.assertEqual(decoded["address"], 0x123456789ABC)
 
 
 def _load_payload(payload: dict[str, object]):

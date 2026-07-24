@@ -14,3 +14,4 @@ logs/*_sequence.svg
 logs/*_sequence.png
 logs/*.txt
 vendor_definitions/*.json
+vendor_projects/*.json

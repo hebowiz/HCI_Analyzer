@@ -91,6 +91,39 @@ class VendorDiscoveryTests(unittest.TestCase):
         self.assertEqual(analysis.candidates["mode"][0].offset, 0)
         self.assertEqual(analysis.candidates["mode"][0].data_type, "enum_u8")
 
+    def test_infers_48_bit_little_endian_address(self) -> None:
+        prefix = "27 27 04 1B 00 00 30 00 "
+        captures = [
+            _capture(
+                1,
+                prefix + "7E 96 C6 6B 00 00 07",
+                address="0x00006BC6967E",
+            ),
+            _capture(
+                2,
+                prefix + "78 56 34 12 01 00 07",
+                address="0x000112345678",
+            ),
+            _capture(
+                3,
+                prefix + "BC 9A 78 56 34 12 07",
+                address="0x123456789ABC",
+            ),
+            _capture(
+                4,
+                prefix + "EF CD AB 89 67 45 07",
+                address="0x456789ABCDEF",
+            ),
+        ]
+
+        analysis = analyze_captures(captures)
+
+        candidate = analysis.candidates["address"][0]
+        self.assertEqual(candidate.offset, 8)
+        self.assertEqual(candidate.data_type, "uint48_le")
+        self.assertEqual(candidate.size, 6)
+        self.assertEqual(candidate.confidence, "high")
+
     def test_definition_draft_requires_review_and_includes_candidates(self) -> None:
         captures = [
             _capture(1, "01", channel="1"),
