@@ -115,6 +115,45 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
         self.assertEqual(loaded.definitions[0].parameters[0].choices[1], "LE_2M")
         self.assertFalse(loaded.review_required)
 
+    def test_zero_parameter_command_exports_console_compatible_definition(
+        self,
+    ) -> None:
+        captures = [_capture(1, "")]
+        project = VendorDiscoveryProject(
+            opcode=0xFC41,
+            command_name="Vendor_No_Parameters",
+        )
+
+        definition = build_console_definition(project, captures)
+
+        command = definition["commands"][0]
+        self.assertEqual(command["parameter_length"], 0)
+        self.assertEqual(command["parameter_template_hex"], "")
+        self.assertEqual(command["parameters"], [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "definition.json"
+            import json
+
+            path.write_text(
+                json.dumps(definition, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            loaded = load_vendor_console_definitions(path)
+
+        self.assertEqual(loaded.definitions[0].parameters, ())
+        self.assertEqual(loaded.definitions[0].parameter_template, b"")
+
+    def test_nonempty_command_still_requires_a_confirmed_parameter(self) -> None:
+        captures = [_capture(1, "AA")]
+        project = VendorDiscoveryProject(
+            opcode=0xFC41,
+            command_name="Vendor_Unknown_Parameter",
+        )
+
+        with self.assertRaisesRegex(ValueError, "confirmed parameter"):
+            build_console_definition(project, captures)
+
     def test_manual_48_bit_layout_is_saved_and_exported(self) -> None:
         captures = [
             _capture(
@@ -230,6 +269,36 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
             project.set_manual_layout("mode", 13, "uint8", 15)
 
         self.assertIsNone(second.confirmed_candidate)
+
+    def test_project_round_trip_keeps_hci_event_capture(self) -> None:
+        event = DiscoveryCapture(
+            capture_id="event:1",
+            timestamp="2026-07-27T12:00:00.000+00:00",
+            source="Port1:COM1",
+            protocol="HCI Event",
+            raw_data=bytes.fromhex("04 0E 04 01 41 FC 00"),
+            hci_event_name="HCI_Command_Complete",
+            related_opcode=0xFC41,
+            hci_event_parameters=bytes.fromhex("01 41 FC 00"),
+        )
+        project = VendorDiscoveryProject(
+            opcode=0xFC41,
+            command_name="Vendor_Command",
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.json"
+            save_project(path, project, [event])
+            _, loaded_captures = load_project(path)
+
+        loaded = loaded_captures[0]
+        self.assertEqual(loaded.protocol, "HCI Event")
+        self.assertEqual(loaded.hci_event_name, "HCI_Command_Complete")
+        self.assertEqual(loaded.related_opcode, 0xFC41)
+        self.assertEqual(
+            loaded.hci_event_parameters,
+            bytes.fromhex("01 41 FC 00"),
+        )
 
 
 if __name__ == "__main__":

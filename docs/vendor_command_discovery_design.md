@@ -22,14 +22,21 @@ Parameter内の格納位置、整数型、符号、エンディアン、Enum候�
 - シリアル設定の保存形式はAnalyzerを踏襲する
 - Discovery固有設定が存在しない初回はAnalyzerの保存値を初期値にする
 
-Vendor HCI Commandは解析対象として保存する。RACEはType、Command ID、
-Payloadを一覧表示するが、現時点ではパラメーター推定対象にしない。
+Vendor HCI Commandは解析対象として保存する。H4 Packet Indicator `0x04`の
+HCI Eventは解析成否にかかわらず一覧表示し、パラメーター推定対象にはしない。
+RACEはType、Command ID、Payloadを一覧表示するが、現時点ではパラメーター
+推定対象にしない。
 
 ## 3. キャプチャー一覧
 
 標準表示は重複をまとめず、Timestamp順に1キャプチャー1行で表示する。
 オプション`Group duplicate captures`を有効にした場合だけ、Protocol、
-OpcodeまたはRACE Type／Command ID、Parameter／Payloadが同じ行を集約する。
+Opcode、Event名と関連Opcode、またはRACE Type／Command ID、
+Parameter／Payloadが同じ行を集約する。
+
+`選択Opcodeのみ表示`を有効にした場合、現在選択中のVendor Commandと、
+Command Complete／Command Status内のOpcodeまたは直前Commandとの関連付けが
+同じHCI Eventだけを表示する。関連Opcodeを特定できないEventとRACEは非表示にする。
 
 利用者は1件または複数件を選択して解析対象から削除できる。削除操作は
 Undo用スタックへ保持し、直前の削除単位で元の時系列位置へ復元できる。
@@ -183,7 +190,7 @@ Byte重複を検証する。
 - 対象OpcodeとCommand Name
 - ユーザー定義パラメーター
 - パラメーターごとの候補と確定結果
-- Vendor HCIおよびRACEのキャプチャー
+- Vendor HCI Command、HCI EventおよびRACEのキャプチャー
 - キャプチャーへ割り当てた既知値と関連応答
 
 プロジェクトを再度開くことで、パラメーターを1項目ずつ追加解析できる。
@@ -227,12 +234,16 @@ Schema、Opcode、Template長、Field Offset、型、範囲、Field重複を検�
 表示する。Command Consoleの数値入力欄でもDefaultと復元値へ同じ表記を適用する。
 
 同じByteを複数Fieldが使用する定義、組み込みOpcodeを置換する定義、
-同名Commandが重複する定義は拒否する。読み込んだ定義は永続化せず、
+同一Command Name・Versionが重複する定義は拒否する。同一OpcodeでもCommand
+NameまたはVersionが異なる定義は別バリアントとして読み込める。読み込んだ定義は永続化せず、
 Command Consoleを再起動した場合は再読込する。
 
 全注釈から従来形式のレビュー必須定義案を出力できる。さらに、ユーザーが
 候補を確定したパラメーターだけを使用して、Command Consoleが直接読み込める
 完成定義を出力できる。未解明Byteは先頭キャプチャーのTemplate値を維持する。
+Parameter Lengthが`0`のCommandに限り、確定パラメーターがなくても
+`parameters: []`の完成定義を出力できる。Parameter Byteを持つCommandでは、
+従来どおり少なくとも1つの確定パラメーターを必要とする。
 
 ## 11. 制約
 

@@ -99,7 +99,7 @@ class CommandConsoleWindow:
         self,
         on_connect: Callable[[], None],
         on_disconnect: Callable[[], None],
-        on_command_selected: Callable[[int], None],
+        on_command_selected: Callable[[ConsoleCommandDefinition], None],
         on_preview: Callable[[Mapping[str, Any]], None],
         on_send: Callable[[Mapping[str, Any]], None],
         on_quick_send: Callable[[int], None],
@@ -774,7 +774,7 @@ class CommandConsoleWindow:
         )
         definition = self._definition_lookup.get(key)
         if definition is not None:
-            self._on_command_selected(definition.opcode)
+            self._on_command_selected(definition)
 
     def _on_category_changed(self, _event: tk.Event) -> None:
         self._populate_commands()

@@ -130,7 +130,7 @@ Timeoutは未接続・接続中を問わず変更でき、次の送信へ即時�
 - Opcodeは読み取り専用表示とする
 - 初めて選択したコマンドには定義済み初期値を設定する
 - 再選択したコマンドには、そのコマンドで最後に入力した値を復元する
-- version固有パラメーターはOpcode単位で保持する
+- version固有パラメーターはOpcode、Command名、Versionの組で保持する
 - 同一Command名のversion間では、同名パラメーターの最新値を共有する
 
 組み込みCategoryは`LE RF PHY Test`と`Informational Parameters`を用意する。
@@ -171,12 +171,12 @@ Timeoutは未接続・接続中を問わず変更でき、次の送信へ即時�
 
 ### 5.6 パラメーター値の保持
 
-入力値はApplication層でOpcodeごとのキャッシュと、Command名ごとの共通値を
-組み合わせて保持する。
+入力値はApplication層でOpcode、Command名、Versionの組をキーにしたキャッシュと、
+Command名ごとの共通値を組み合わせて保持する。
 
 ```python
 parameter_value_cache = {
-    0x2034: {
+    (0x2034, "HCI_LE_Transmitter_Test", "v2"): {
         "TX_Channel": 19,
         "Test_Data_Length": 37,
         "Packet_Payload": 0,
@@ -194,12 +194,12 @@ shared_parameter_values = {
 }
 ```
 
-- 入力変更時に現在選択中Opcodeのキャッシュを更新する
+- 入力変更時に現在選択中のOpcode、Command名、Versionのキャッシュを更新する
 - 同時に、Command名とパラメーター名が一致する共通値を更新する
 - コマンド再選択時はキャッシュ値をフォームへ設定する
 - version切り替え時は、切り替え先にも存在する共通パラメーター値を上書き適用する
 - キャッシュがない場合はコマンド定義の初期値を使用する
-- version固有パラメーターは各Opcodeで個別に保持する
+- version固有パラメーターは各定義バリアントで個別に保持する
 - ReceiverとTransmitterのようにCommand名が異なる場合、同じ`PHY`という名前でも共有しない
 - アプリ終了後の永続化は行わない
 - 「初期値」ボタンを押した場合、現在versionの初期値をキャッシュへ設定し、
@@ -375,7 +375,12 @@ Supported Commandsのoctet 5 bit 7を対応状況へ反映する。
 
 Vendor Discoveryが出力したSchema Version 1のJSONを接続設定欄から読み込む。
 OGF `0x3F`以外のOpcode、組み込みOpcodeとの重複、Template長不一致、
-未対応型、範囲外Offset、Field重複、同名Command重複を拒否する。
+未対応型、範囲外Offset、Field重複、同一Command Name・Versionの重複を拒否する。
+
+同一OpcodeでもCommand Nameまたは任意の`version`が異なる定義は、別バリアント
+として同時に保持する。GUIはCategory、Command Name、Versionで定義を一意に選択し、
+ApplicationへOpcodeではなく選択した定義そのものを渡す。同じ識別子の定義を
+再読込した場合だけ、そのバリアントを置換する。
 
 対応するField Typeは次のとおり。
 
@@ -411,6 +416,10 @@ Vendor Parameterの`number_format`は`decimal`または`hex`を保持する。�
 
 `review_required: true`を含む定義は警告ダイアログでCommand名とOpcodeを示し、
 承認された場合だけ読み込む。外部定義はアプリ実行中だけ保持する。
+
+送信時にTransportが返すTransaction IDと選択バリアントを関連付ける。
+Transmitted Commandおよび対応するCommand Complete／Command Statusのログ名には、
+Opcodeだけで検索した定義ではなくTransaction IDに対応するバリアントを使用する。
 
 ## 8. 入力検証設計
 

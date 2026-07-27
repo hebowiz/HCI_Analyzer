@@ -16,6 +16,9 @@ from hci_analyzer.command_builder.definitions import (
 from hci_analyzer.models import ParseResult
 from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
+from hci_analyzer.vendor.console_definitions import (
+    load_vendor_console_definitions,
+)
 
 
 class _WindowStub:
@@ -79,6 +82,7 @@ class CommandConsoleSupportTests(unittest.TestCase):
         self.application._command_support = {}
         self.application._parameter_value_cache = {}
         self.application._shared_parameter_values = {}
+        self.application._transaction_definitions = {}
         self.application._selected_definition = None
         self.application._window = _WindowStub()
         self.application._definitions_by_opcode = dict(
@@ -184,6 +188,42 @@ class CommandConsoleSupportTests(unittest.TestCase):
             TransportEventKind.SYSTEM,
         )
 
+    def test_vendor_variants_with_same_opcode_can_be_loaded_separately(
+        self,
+    ) -> None:
+        first_payload = _vendor_definition_payload()
+        second_payload = _vendor_definition_payload()
+        _convert_to_mode_variant(second_payload)
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.json"
+            second_path = Path(directory) / "second.json"
+            first_path.write_text(json.dumps(first_payload), encoding="utf-8")
+            second_path.write_text(json.dumps(second_payload), encoding="utf-8")
+
+            self.application._window.definition_paths = (first_path,)
+            self.application._load_vendor_definitions()
+            self.application._window.definition_paths = (second_path,)
+            self.application._load_vendor_definitions()
+
+        variants = [
+            item
+            for item in self.application._selectable_definitions
+            if item.vendor_specific and item.opcode == 0xFC41
+        ]
+        self.assertEqual(len(variants), 2)
+        self.assertEqual(
+            {item.display_name for item in variants},
+            {"Vendor_Set_Channel", "Vendor_Set_Mode[B]"},
+        )
+        mode_definition = next(
+            item for item in variants if item.name == "Vendor_Set_Mode"
+        )
+        self.application._select_command(mode_definition)
+        self.assertEqual(
+            set(self.application._window.values),
+            {"mode"},
+        )
+
     def test_unconfirmed_vendor_draft_is_not_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "vendor.json"
@@ -255,6 +295,51 @@ class CommandConsoleSupportTests(unittest.TestCase):
         )
         self.assertIn('"channel": "0x13"', log)
         self.assertIn("Channel                : 0x13", log)
+
+    def test_transaction_log_uses_selected_same_opcode_variant(self) -> None:
+        first = _load_vendor_definition_for_test(
+            _vendor_definition_payload(),
+        )
+        second_payload = _vendor_definition_payload()
+        _convert_to_mode_variant(second_payload)
+        second = _load_vendor_definition_for_test(second_payload)
+        self.application._selectable_definitions.extend((first, second))
+        self.application._selected_definition = second
+        self.application._transaction_definitions[7] = second
+        command = HciCommandEncoder()._parser.parse_hex_string(
+            "01 41 FC 01 13"
+        )
+        transmitted = TransportEvent(
+            timestamp=datetime.now().astimezone(),
+            kind=TransportEventKind.TRANSMITTED,
+            source="Test",
+            parsed=command,
+            transaction_id=7,
+        )
+
+        self.application._handle_transport_event(transmitted)
+
+        self.assertEqual(
+            command.decoded["display_name"],
+            "Vendor_Set_Mode[B]",
+        )
+        response = HciCommandEncoder()._parser.parse_hex_string(
+            "04 0E 04 01 41 FC 00"
+        )
+        received = TransportEvent(
+            timestamp=datetime.now().astimezone(),
+            kind=TransportEventKind.RECEIVED,
+            source="Test",
+            parsed=response,
+            transaction_id=7,
+        )
+        self.application._handle_transport_event(received)
+
+        self.assertEqual(
+            response.decoded["command_name"],
+            "Vendor_Set_Mode[B]",
+        )
+        self.assertNotIn(7, self.application._transaction_definitions)
 
     def test_port_connection_events_do_not_reset_capability_result(self) -> None:
         self.application._command_support = {0x201D: False}
@@ -368,11 +453,6 @@ class CommandConsoleSupportTests(unittest.TestCase):
         self.assertEqual(self.application._window.values["TX_Power_Mode"], 0x02)
         self.assertEqual(self.application._window.values["TX_Power_Level"], "-5")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _vendor_definition_payload() -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -395,3 +475,31 @@ def _vendor_definition_payload() -> dict[str, object]:
             }
         ],
     }
+
+
+def _load_vendor_definition_for_test(
+    payload: dict[str, object],
+):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "vendor.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return load_vendor_console_definitions(path).definitions[0]
+
+
+def _convert_to_mode_variant(payload: dict[str, object]) -> None:
+    command = payload["commands"][0]
+    command["name"] = "Vendor_Set_Mode"
+    command["version"] = "B"
+    command["parameter_template_hex"] = "02"
+    command["parameters"] = [
+        {
+            "name": "mode",
+            "offset": 0,
+            "type": "uint8",
+            "default": 2,
+        }
+    ]
+
+
+if __name__ == "__main__":
+    unittest.main()

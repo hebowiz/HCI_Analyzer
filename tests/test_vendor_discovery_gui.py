@@ -2,13 +2,17 @@
 
 import unittest
 import tkinter as tk
+from pathlib import Path
 from unittest.mock import Mock
 
 from hci_analyzer.gui.vendor_discovery import (
     VendorDiscoveryWindow,
     _activate_modal_dialog,
     _centered_position,
+    _matches_opcode_filter,
 )
+from hci_analyzer.vendor.discovery import VendorCapture
+from hci_analyzer.vendor.live_capture import DiscoveryCapture
 from hci_analyzer.vendor.project import (
     UserParameter,
     VendorDiscoveryProject,
@@ -16,6 +20,46 @@ from hci_analyzer.vendor.project import (
 
 
 class VendorDiscoveryWindowTests(unittest.TestCase):
+    def test_opcode_filter_keeps_command_and_related_event_only(self) -> None:
+        vendor = VendorCapture(
+            capture_id="vendor:1",
+            source_path=Path("<live>"),
+            line_number=1,
+            timestamp="2026-07-27T12:00:00",
+            source="Port1",
+            opcode=0xFC41,
+            parameters=b"",
+            raw_data=bytes.fromhex("01 41 FC 00"),
+        )
+        command = DiscoveryCapture(
+            capture_id="vendor:1",
+            timestamp=vendor.timestamp,
+            source=vendor.source,
+            protocol="HCI Vendor",
+            raw_data=vendor.raw_data,
+            vendor_capture=vendor,
+        )
+        related_event = DiscoveryCapture(
+            capture_id="event:2",
+            timestamp=vendor.timestamp,
+            source=vendor.source,
+            protocol="HCI Event",
+            raw_data=bytes.fromhex("04 0E 04 01 41 FC 00"),
+            related_opcode=0xFC41,
+        )
+        unrelated_event = DiscoveryCapture(
+            capture_id="event:3",
+            timestamp=vendor.timestamp,
+            source=vendor.source,
+            protocol="HCI Event",
+            raw_data=bytes.fromhex("04 FF 00"),
+        )
+
+        self.assertTrue(_matches_opcode_filter(command, 0xFC41))
+        self.assertTrue(_matches_opcode_filter(related_event, 0xFC41))
+        self.assertFalse(_matches_opcode_filter(unrelated_event, 0xFC41))
+        self.assertFalse(_matches_opcode_filter(command, 0xFC42))
+
     def test_parameter_selection_is_restored_after_tree_refresh(self) -> None:
         window = object.__new__(VendorDiscoveryWindow)
         parameter = UserParameter(

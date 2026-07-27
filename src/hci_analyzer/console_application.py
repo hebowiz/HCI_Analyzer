@@ -61,8 +61,15 @@ class HciCommandConsoleApplication:
         self._window.set_refresh_handler(self._refresh_ports)
         self._window.set_close_handler(self._close)
         self._selected_definition: ConsoleCommandDefinition | None = None
-        self._parameter_value_cache: dict[int, dict[str, Any]] = {}
+        self._parameter_value_cache: dict[
+            tuple[int, str, str | None],
+            dict[str, Any],
+        ] = {}
         self._shared_parameter_values: dict[str, dict[str, Any]] = {}
+        self._transaction_definitions: dict[
+            int,
+            ConsoleCommandDefinition,
+        ] = {}
         self._latest_encoded: EncodedCommand | None = None
         self._command_support: dict[int, bool] = {}
         self._definitions_by_opcode = dict(COMMAND_DEFINITIONS_BY_OPCODE)
@@ -91,9 +98,16 @@ class HciCommandConsoleApplication:
                 f"Port enumeration failed: {format_exception_for_log(exc)}"
             )
 
-    def _select_command(self, opcode: int) -> None:
+    def _select_command(
+        self,
+        selection: ConsoleCommandDefinition | int,
+    ) -> None:
         self._cache_current_values()
-        definition = self._definitions_by_opcode[opcode]
+        definition = (
+            selection
+            if isinstance(selection, ConsoleCommandDefinition)
+            else self._definitions_by_opcode[selection]
+        )
         values = self._values_for_definition(definition)
         self._selected_definition = definition
         self._window.show_parameter_form(definition)
@@ -180,7 +194,7 @@ class HciCommandConsoleApplication:
             return
         try:
             timeout_seconds = self._window.get_response_timeout_seconds()
-            self._transport.send(
+            transaction_id = self._transport.send(
                 encoded.frame,
                 expected_opcode=definition.opcode,
                 response_timeout_seconds=timeout_seconds,
@@ -190,6 +204,9 @@ class HciCommandConsoleApplication:
                 f"Send request failed: {format_exception_for_log(exc)}"
             )
             return
+        if not hasattr(self, "_transaction_definitions"):
+            self._transaction_definitions = {}
+        self._transaction_definitions[transaction_id] = definition
         self._window.set_busy_state(True)
 
     def _reset_current_values(self) -> None:
@@ -215,7 +232,10 @@ class HciCommandConsoleApplication:
         values = self._defaults(definition)
         values.update(
             self._copy_parameter_values(
-                self._parameter_value_cache.get(definition.opcode, {})
+                self._parameter_value_cache.get(
+                    _definition_key(definition),
+                    {},
+                )
             )
         )
         shared = self._shared_parameter_values.get(definition.name, {})
@@ -237,7 +257,7 @@ class HciCommandConsoleApplication:
         values: Mapping[str, Any],
     ) -> None:
         copied = self._copy_parameter_values(values)
-        self._parameter_value_cache[definition.opcode] = copied
+        self._parameter_value_cache[_definition_key(definition)] = copied
         parameter_names = {parameter.name for parameter in definition.parameters}
         shared = self._shared_parameter_values.setdefault(definition.name, {})
         shared.update(
@@ -261,17 +281,20 @@ class HciCommandConsoleApplication:
 
     def _handle_transport_event(self, event: TransportEvent) -> None:
         if event.parsed is not None:
-            self._apply_external_command_name(event.parsed)
+            self._apply_external_command_name(event)
         self._window.append_transport_event(event)
         if event.kind == TransportEventKind.CONNECTED:
             self._window.set_connected_state(True)
         elif event.kind == TransportEventKind.DISCONNECTED:
             self._window.set_connected_state(False)
             self._window.set_busy_state(False)
+            self._transaction_definitions.clear()
         elif event.kind == TransportEventKind.RESPONSE_TIMEOUT:
             self._window.set_busy_state(False)
+            self._forget_transaction_definition(event.transaction_id)
         elif event.kind == TransportEventKind.ERROR and event.transaction_id is not None:
             self._window.set_busy_state(False)
+            self._forget_transaction_definition(event.transaction_id)
         elif event.kind == TransportEventKind.RECEIVED and event.transaction_id is not None:
             parsed = event.parsed
             if parsed is None:
@@ -283,8 +306,12 @@ class HciCommandConsoleApplication:
                 event_name == "HCI_Command_Status" and status != 0
             ):
                 self._window.set_busy_state(False)
+                self._forget_transaction_definition(event.transaction_id)
 
-    def _apply_external_command_name(self, parsed: ParseResult) -> None:
+    def _apply_external_command_name(self, event: TransportEvent) -> None:
+        parsed = event.parsed
+        if parsed is None:
+            return
         if not parsed.success:
             return
         decoded = parsed.decoded
@@ -293,7 +320,24 @@ class HciCommandConsoleApplication:
             raw_opcode = decoded.get("command_opcode_value")
         if not isinstance(raw_opcode, int):
             return
-        definition = self._definitions_by_opcode.get(raw_opcode)
+        definition = self._transaction_definitions.get(event.transaction_id)
+        if definition is not None and definition.opcode != raw_opcode:
+            definition = None
+        if (
+            definition is None
+            and parsed.packet_type == "HCI_Command"
+            and self._selected_definition is not None
+            and self._selected_definition.opcode == raw_opcode
+        ):
+            definition = self._selected_definition
+        if definition is None:
+            matches = [
+                item
+                for item in self._selectable_definitions
+                if item.vendor_specific and item.opcode == raw_opcode
+            ]
+            if len(matches) == 1:
+                definition = matches[0]
         if definition is None or not definition.vendor_specific:
             return
         decoded["command_name"] = definition.display_name
@@ -304,6 +348,13 @@ class HciCommandConsoleApplication:
                 definition,
                 parameters,
             )
+
+    def _forget_transaction_definition(
+        self,
+        transaction_id: int | None,
+    ) -> None:
+        if transaction_id is not None:
+            self._transaction_definitions.pop(transaction_id, None)
 
     def _apply_supported_commands(self, parsed: ParseResult) -> None:
         if not parsed.success:
@@ -339,7 +390,7 @@ class HciCommandConsoleApplication:
             return
         loaded_definitions: list[ConsoleCommandDefinition] = []
         review_names: list[str] = []
-        seen_opcodes: set[int] = set()
+        loaded_selection_keys: set[tuple[str, str, str | None]] = set()
         try:
             for path in paths:
                 loaded = load_vendor_console_definitions(path)
@@ -349,12 +400,13 @@ class HciCommandConsoleApplication:
                             f"Vendor definition cannot replace built-in opcode "
                             f"0x{definition.opcode:04X}"
                         )
-                    if definition.opcode in seen_opcodes:
+                    selection_key = _selection_key(definition)
+                    if selection_key in loaded_selection_keys:
                         raise ValueError(
-                            f"Duplicate vendor opcode 0x{definition.opcode:04X} "
-                            "across selected files"
+                            "Duplicate command selection name across selected "
+                            f"files: {definition.display_name}"
                         )
-                    seen_opcodes.add(definition.opcode)
+                    loaded_selection_keys.add(selection_key)
                     loaded_definitions.append(definition)
                     if definition.review_required:
                         review_names.append(
@@ -364,7 +416,7 @@ class HciCommandConsoleApplication:
             retained = [
                 item
                 for item in self._selectable_definitions
-                if item.opcode not in seen_opcodes
+                if _selection_key(item) not in loaded_selection_keys
             ]
             selection_keys: set[tuple[str, str, str | None]] = set()
             for definition in (*retained, *loaded_definitions):
@@ -392,16 +444,15 @@ class HciCommandConsoleApplication:
             )
             return
 
-        replaced_opcodes = {item.opcode for item in loaded_definitions}
         self._selectable_definitions = [
             item
             for item in self._selectable_definitions
-            if item.opcode not in replaced_opcodes
+            if _selection_key(item) not in loaded_selection_keys
         ]
         self._selectable_definitions.extend(loaded_definitions)
         for definition in loaded_definitions:
             self._definitions_by_opcode[definition.opcode] = definition
-            self._parameter_value_cache.pop(definition.opcode, None)
+            self._parameter_value_cache.pop(_definition_key(definition), None)
             self._shared_parameter_values.pop(definition.name, None)
         self._window.set_command_definitions(tuple(self._selectable_definitions))
         self._append_application_message(
@@ -468,3 +519,15 @@ class HciCommandConsoleApplication:
             name: list(value) if isinstance(value, (list, tuple)) else value
             for name, value in values.items()
         }
+
+
+def _selection_key(
+    definition: ConsoleCommandDefinition,
+) -> tuple[str, str, str | None]:
+    return definition.category, definition.name, definition.version
+
+
+def _definition_key(
+    definition: ConsoleCommandDefinition,
+) -> tuple[int, str, str | None]:
+    return definition.opcode, definition.name, definition.version

@@ -73,6 +73,13 @@ CONFIDENCE_LABELS = {
 }
 
 
+def _matches_opcode_filter(entry: DiscoveryCapture, opcode: int) -> bool:
+    """Return whether a capture belongs to the selected Vendor opcode."""
+    if entry.vendor_capture is not None:
+        return entry.vendor_capture.opcode == opcode
+    return entry.protocol == "HCI Event" and entry.related_opcode == opcode
+
+
 class VendorDiscoveryWindow:
     """Present live capture, filtering, user fields, inference, and export."""
 
@@ -111,6 +118,7 @@ class VendorDiscoveryWindow:
         self._command_name_variable = tk.StringVar()
         self._known_value_variable = tk.StringVar()
         self._group_duplicates_variable = tk.BooleanVar(value=False)
+        self._filter_selected_opcode_variable = tk.BooleanVar(value=False)
         self._status_variable = tk.StringVar(value="停止中")
         self._build_window()
 
@@ -197,7 +205,7 @@ class VendorDiscoveryWindow:
         if added is not None:
             self._refresh_all_views(select_capture_id=added.capture_id)
             self._status_variable.set(
-                f"{len(self._store.entries)}件のコマンドを取得"
+                f"{len(self._store.entries)}件の項目を取得"
             )
             return
         if record.result is not None and not record.result.success:
@@ -302,11 +310,17 @@ class VendorDiscoveryWindow:
             variable=self._group_duplicates_variable,
             command=self._refresh_capture_tree,
         ).grid(row=0, column=5, padx=(0, 8), pady=8)
+        ttk.Checkbutton(
+            frame,
+            text="選択Opcodeのみ表示",
+            variable=self._filter_selected_opcode_variable,
+            command=self._refresh_capture_tree,
+        ).grid(row=0, column=6, padx=(0, 8), pady=8)
 
     def _build_capture_frame(self) -> None:
         frame = ttk.LabelFrame(
             self._root,
-            text="検出コマンド（標準は時系列表示）",
+            text="検出フレーム（標準は時系列表示）",
         )
         frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=4)
         frame.columnconfigure(0, weight=1)
@@ -333,7 +347,7 @@ class VendorDiscoveryWindow:
             "timestamp": "タイムスタンプ",
             "source": "取得元",
             "protocol": "プロトコル",
-            "identifier": "Opcode / Command ID",
+            "identifier": "Opcode / Event / Command ID",
             "parameters": "パラメーター / Payload",
             "known": "既知値",
             "responses": "応答数",
@@ -649,6 +663,18 @@ class VendorDiscoveryWindow:
         groups = self._store.groups(
             group_duplicates=self._group_duplicates_variable.get()
         )
+        if (
+            self._filter_selected_opcode_variable.get()
+            and self._active_opcode is not None
+        ):
+            groups = [
+                group
+                for group in groups
+                if any(
+                    _matches_opcode_filter(entry, self._active_opcode)
+                    for entry in group.entries
+                )
+            ]
         for index, group in enumerate(groups, start=1):
             first = group.first
             item_id = f"row:{index}"
@@ -765,6 +791,7 @@ class VendorDiscoveryWindow:
         )
         self._command_name_variable.set(project.command_name)
         self._current_analysis = None
+        self._refresh_capture_tree()
         self._refresh_parameter_tree()
         self._set_report(
             "Define a parameter, assign known values to selected captures, "

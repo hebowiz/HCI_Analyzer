@@ -52,6 +52,34 @@ class VendorConsoleDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not Vendor Specific"):
             _load_payload(payload)
 
+    def test_allows_multiple_variants_with_the_same_opcode(self) -> None:
+        payload = _definition_payload()
+        second = dict(payload["commands"][0])
+        second["name"] = "Vendor_Set_RF_Alternate"
+        second["version"] = "B"
+        payload["commands"].append(second)
+
+        loaded = _load_payload(payload)
+
+        self.assertEqual(len(loaded.definitions), 2)
+        self.assertEqual(
+            {item.opcode for item in loaded.definitions},
+            {0xFC41},
+        )
+        self.assertEqual(
+            loaded.definitions[1].display_name,
+            "Vendor_Set_RF_Alternate[B]",
+        )
+
+    def test_rejects_duplicate_name_and_version_even_with_same_opcode(
+        self,
+    ) -> None:
+        payload = _definition_payload()
+        payload["commands"].append(dict(payload["commands"][0]))
+
+        with self.assertRaisesRegex(ValueError, "selection name"):
+            _load_payload(payload)
+
     def test_rejects_missing_template(self) -> None:
         payload = _definition_payload()
         del payload["commands"][0]["parameter_template_hex"]

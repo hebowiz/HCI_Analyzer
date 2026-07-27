@@ -273,6 +273,7 @@ def build_console_definition(
     lengths = {len(capture.parameters) for capture in evidence}
     if len(lengths) != 1:
         raise ValueError("Console export requires one fixed parameter length")
+    parameter_length = next(iter(lengths))
     fields: list[dict[str, object]] = []
     occupied: dict[int, str] = {}
     for parameter in project.parameters:
@@ -303,7 +304,6 @@ def build_console_definition(
                 f"Confirmed parameter {parameter.name} size does not match "
                 f"{data_type}"
             )
-        parameter_length = next(iter(lengths))
         if offset < 0 or offset + size > parameter_length:
             raise ValueError(
                 f"Confirmed parameter {parameter.name} exceeds the parameter "
@@ -352,7 +352,7 @@ def build_console_definition(
                         field["default"] = int(field["default"])
                 field["choices"] = choices
         fields.append(field)
-    if not fields:
+    if not fields and parameter_length != 0:
         raise ValueError("At least one confirmed parameter is required")
     return {
         "schema_version": 1,
@@ -364,7 +364,7 @@ def build_console_definition(
                 "ogf": 0x3F,
                 "ocf": project.opcode & 0x03FF,
                 "name": project.command_name.strip(),
-                "parameter_length": lengths.pop(),
+                "parameter_length": parameter_length,
                 "parameter_template_hex": evidence[0].parameters.hex(" ").upper(),
                 "parameters": fields,
                 "response": {"kind": "unknown"},
@@ -449,6 +449,20 @@ def _capture_to_dict(capture: DiscoveryCapture) -> dict[str, object]:
                 ],
             }
         )
+    elif capture.protocol == "HCI Event":
+        base.update(
+            {
+                "event_name": capture.hci_event_name,
+                "related_opcode": (
+                    f"0x{capture.related_opcode:04X}"
+                    if capture.related_opcode is not None
+                    else None
+                ),
+                "event_parameters_hex": (
+                    capture.hci_event_parameters.hex(" ").upper()
+                ),
+            }
+        )
     else:
         base.update(
             {
@@ -502,6 +516,24 @@ def _capture_from_dict(
             protocol=protocol,
             raw_data=raw,
             vendor_capture=vendor,
+        )
+    if protocol == "HCI Event":
+        related_opcode = item.get("related_opcode")
+        return DiscoveryCapture(
+            capture_id=capture_id,
+            timestamp=timestamp,
+            source=source,
+            protocol=protocol,
+            raw_data=raw,
+            hci_event_name=str(item.get("event_name") or "Unknown HCI Event"),
+            related_opcode=(
+                int(str(related_opcode), 0)
+                if related_opcode not in (None, "")
+                else None
+            ),
+            hci_event_parameters=bytes.fromhex(
+                str(item.get("event_parameters_hex", ""))
+            ),
         )
     return DiscoveryCapture(
         capture_id=capture_id,

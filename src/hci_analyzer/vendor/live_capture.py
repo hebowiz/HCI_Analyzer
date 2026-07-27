@@ -20,6 +20,9 @@ class DiscoveryCapture:
     protocol: str
     raw_data: bytes
     vendor_capture: VendorCapture | None = None
+    hci_event_name: str | None = None
+    related_opcode: int | None = None
+    hci_event_parameters: bytes = b""
     race_type: int | None = None
     race_command_id: int | None = None
     race_payload: bytes = b""
@@ -31,18 +34,23 @@ class DiscoveryCapture:
 
     @property
     def opcode(self) -> int | None:
-        """Return the vendor HCI opcode, if applicable."""
-        return (
-            self.vendor_capture.opcode
-            if self.vendor_capture is not None
-            else None
-        )
+        """Return the command or related-response opcode, if applicable."""
+        if self.vendor_capture is not None:
+            return self.vendor_capture.opcode
+        return self.related_opcode
 
     @property
     def identifier(self) -> str:
         """Return a compact protocol-specific identifier."""
         if self.vendor_capture is not None:
             return f"0x{self.vendor_capture.opcode:04X}"
+        if self.protocol == "HCI Event":
+            if self.related_opcode is not None:
+                return (
+                    f"{self.hci_event_name or 'HCI Event'} / "
+                    f"0x{self.related_opcode:04X}"
+                )
+            return self.hci_event_name or "HCI Event"
         if self.protocol == "RACE" and self.race_command_id is not None:
             return f"Type 0x{self.race_type:02X} / ID 0x{self.race_command_id:04X}"
         return "-"
@@ -52,6 +60,8 @@ class DiscoveryCapture:
         """Return the bytes displayed as command parameters or payload."""
         if self.vendor_capture is not None:
             return self.vendor_capture.parameters
+        if self.protocol == "HCI Event":
+            return self.hci_event_parameters
         return self.race_payload
 
     def group_key(self) -> tuple[object, ...]:
@@ -59,6 +69,7 @@ class DiscoveryCapture:
         return (
             self.protocol,
             self.opcode,
+            self.hci_event_name,
             self.race_type,
             self.race_command_id,
             self.parameters,
@@ -102,7 +113,31 @@ class LiveCaptureStore:
     def add_record(self, record: LogRecord) -> DiscoveryCapture | None:
         """Add a supported parsed record and return the displayed capture."""
         result = record.result
-        if result is None or not result.success:
+        if result is None:
+            return None
+        if result.packet_type == "HCI_Event" and record.raw_data[:1] == b"\x04":
+            related_opcode = self._associate_response(record.raw_data)
+            decoded = result.decoded
+            if not decoded and result.error is not None:
+                decoded = result.error.details
+            event_name = str(decoded.get("event_name") or "Unknown HCI Event")
+            if decoded.get("subevent_name"):
+                event_name = str(decoded["subevent_name"])
+            entry = DiscoveryCapture(
+                capture_id=self._new_id("event"),
+                timestamp=record.timestamp.isoformat(timespec="milliseconds"),
+                source=record.source,
+                protocol="HCI Event",
+                raw_data=record.raw_data,
+                hci_event_name=event_name,
+                related_opcode=related_opcode,
+                hci_event_parameters=(
+                    record.raw_data[3:] if len(record.raw_data) >= 3 else b""
+                ),
+            )
+            self._append_chronological(entry)
+            return entry
+        if not result.success:
             return None
         if result.packet_type == "HCI_Command":
             decoded = result.decoded
@@ -150,8 +185,6 @@ class LiveCaptureStore:
             )
             self._append_chronological(entry)
             return entry
-        if result.packet_type == "HCI_Event":
-            self._associate_response(record.raw_data)
         return None
 
     def add_vendor_captures(
@@ -231,9 +264,9 @@ class LiveCaptureStore:
         return tuple(
             sorted(
                 {
-                    entry.opcode
+                    entry.vendor_capture.opcode
                     for entry in self._entries
-                    if entry.opcode is not None
+                    if entry.vendor_capture is not None
                 }
             )
         )
@@ -245,13 +278,13 @@ class LiveCaptureStore:
             if entry.opcode == opcode and entry.vendor_capture is not None
         ]
 
-    def _associate_response(self, raw_data: bytes) -> None:
+    def _associate_response(self, raw_data: bytes) -> int | None:
         opcode = _response_opcode(raw_data)
         if opcode is not None and ((opcode >> 10) & 0x3F) == 0x3F:
             pending = self._pending_by_opcode.get(opcode, [])
             if pending:
                 pending.pop(0).responses.append(raw_data)
-            return
+            return opcode
         if (
             len(raw_data) >= 3
             and raw_data[0] == 0x04
@@ -259,6 +292,8 @@ class LiveCaptureStore:
             and self._latest_vendor is not None
         ):
             self._latest_vendor.responses.append(raw_data)
+            return self._latest_vendor.opcode
+        return opcode
 
     def _new_id(self, prefix: str) -> str:
         existing = {entry.capture_id for entry in self._entries}

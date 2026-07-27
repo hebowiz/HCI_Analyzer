@@ -88,12 +88,53 @@ class LiveCaptureStoreTests(unittest.TestCase):
     def test_command_complete_is_associated_by_opcode(self) -> None:
         self.store.add_record(self._record("01 41 FC 01 AA", second=1))
 
-        self.store.add_record(
+        event = self.store.add_record(
             self._record("04 0E 04 01 41 FC 00", second=2)
         )
 
         captures = self.store.vendor_captures(0xFC41)
         self.assertEqual(len(captures[0].responses), 1)
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.protocol, "HCI Event")
+        self.assertEqual(event.related_opcode, 0xFC41)
+        self.assertEqual(
+            event.identifier,
+            "HCI_Command_Complete / 0xFC41",
+        )
+        self.assertEqual(event.parameters, bytes.fromhex("01 41 FC 00"))
+        self.assertFalse(event.analyzable)
+        self.assertEqual(self.store.vendor_opcodes(), (0xFC41,))
+
+    def test_vendor_specific_event_is_displayed_and_related_to_latest_command(
+        self,
+    ) -> None:
+        self.store.add_record(self._record("01 41 FC 00", second=1))
+
+        event = self.store.add_record(
+            self._record("04 FF 02 55 AA", second=2)
+        )
+
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.protocol, "HCI Event")
+        self.assertEqual(event.identifier, "HCI_Vendor_Specific_Event / 0xFC41")
+        self.assertEqual(event.parameters, bytes.fromhex("55 AA"))
+        self.assertEqual(
+            self.store.vendor_captures(0xFC41)[0].responses,
+            [bytes.fromhex("04 FF 02 55 AA")],
+        )
+
+    def test_hci_event_with_parser_error_is_still_displayed(self) -> None:
+        event = self.store.add_record(
+            self._record("04 0E 04 01 01 04 00", second=1)
+        )
+
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.protocol, "HCI Event")
+        self.assertEqual(event.related_opcode, 0x0401)
+        self.assertFalse(event.analyzable)
 
     def _record(self, raw_hex: str, *, second: int) -> LogRecord:
         raw = bytes.fromhex(raw_hex)

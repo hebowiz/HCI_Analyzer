@@ -66,7 +66,7 @@ def load_vendor_console_definitions(path: Path) -> LoadedVendorDefinitions:
 
     root_review_required = payload.get("review_required") is True
     definitions: list[ConsoleCommandDefinition] = []
-    seen_opcodes: set[int] = set()
+    seen_selection_keys: set[tuple[str, str | None]] = set()
     for index, command in enumerate(commands):
         if not isinstance(command, dict):
             raise ValueError(f"commands[{index}] must be an object")
@@ -76,9 +76,13 @@ def load_vendor_console_definitions(path: Path) -> LoadedVendorDefinitions:
             root_review_required,
             index,
         )
-        if definition.opcode in seen_opcodes:
-            raise ValueError(f"Duplicate opcode 0x{definition.opcode:04X}")
-        seen_opcodes.add(definition.opcode)
+        selection_key = (definition.name, definition.version)
+        if selection_key in seen_selection_keys:
+            raise ValueError(
+                "Duplicate command selection name: "
+                f"{definition.display_name}"
+            )
+        seen_selection_keys.add(selection_key)
         definitions.append(definition)
     return LoadedVendorDefinitions(
         definitions=tuple(definitions),
@@ -157,6 +161,13 @@ def _load_command(
     name = command.get("name")
     if not isinstance(name, str) or not name.strip():
         raise ValueError(f"commands[{index}] name is required")
+    raw_version = command.get("version")
+    if raw_version is None:
+        version = None
+    elif isinstance(raw_version, str) and raw_version.strip():
+        version = raw_version.strip()
+    else:
+        raise ValueError(f"commands[{index}].version must be a non-empty string")
     parameter_length = command.get("parameter_length")
     if (
         not isinstance(parameter_length, int)
@@ -217,7 +228,7 @@ def _load_command(
     return ConsoleCommandDefinition(
         opcode=opcode,
         name=name.strip(),
-        version=None,
+        version=version,
         category=VENDOR_SPECIFIC,
         parameters=tuple(parameters),
         response_kind=response_kind,

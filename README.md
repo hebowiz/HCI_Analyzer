@@ -97,6 +97,9 @@ Command Consoleのログはアプリ実行中の画面表示のみで、ファ�
 Vendor Commandを使用する場合は、接続設定欄の「Vendor定義読込」から定義案JSONを
 選択します。`review_required: true`の定義は警告を表示し、利用者が確認した場合だけ
 読み込みます。読み込んだCommandは`Vendor Specific`カテゴリへ追加されます。
+同一OpcodeでもCommand NameまたはVersionが異なる定義は、別バリアントとして
+同時に登録・選択できます。送受信ログはTransaction IDを使って実際に送信した
+バリアント名へ紐付けます。
 定義はアプリ終了後まで記憶しないため、次回起動時は再度読み込んでください。
 
 ### 起動
@@ -136,9 +139,10 @@ python vendor_discovery.py
 ### 基本操作
 
 1. Analyzerと同じ2ポート・共通ボーレート設定で取得を開始する
-2. Vendor CommandとRACEを時系列一覧で確認する
+2. Vendor Command、HCI Event、RACEを時系列一覧で確認する
 3. 不要なキャプチャーを選択して除外する（Undo可能）
 4. 解析するVendor Opcodeを選択する
+   - 「選択Opcodeのみ表示」で、そのCommandとOpcodeを含む応答だけに絞り込める
 5. PHY、Channelなどのパラメーターをユーザー定義する
    - JSON数値表記はパラメーターごとに10進／16進を選択できる
 6. キャプチャーを選び、選択パラメーターの既知値を割り当てる
@@ -151,8 +155,12 @@ python vendor_discovery.py
 `Group duplicate captures`を有効にした場合だけ、同一Protocol、識別子、
 Parameter／Payloadのキャプチャーを表示上でまとめます。
 
-RACEはType、Command ID、Payloadを一覧へ表示しますが、現在はパラメーター
-推定およびCommand Console定義出力の対象外です。
+H4 Packet Indicator `0x04`のHCI Eventは一覧へ表示します。Command Complete／
+Command Statusは応答内のOpcodeと関連付け、Vendor Specific Eventは直前のVendor
+Commandと参考情報として関連付けます。Event自体はパラメーター推定対象外です。
+
+RACEはType、Command ID、Payloadを一覧へ表示しますが、現在はパラメーター推定
+およびCommand Console定義出力の対象外です。
 
 自動推定する型は、8／16／32／48 bitの符号あり・なし整数、
 little-endian／big-endian、および1～4 byte Enumです。Enum値は連続値である
@@ -160,6 +168,9 @@ little-endian／big-endian、および1～4 byte Enumです。Enum値は連続�
 定義案は`review_required: true`として保存されます。ユーザーが候補を明示的に
 確定したパラメーターからはConsole用完成定義を出力できます。いずれも実機送信へ
 使用する前に、必ず内容を確認してください。
+
+Parameter Lengthが`0`のCommandは、ユーザー定義パラメーターを追加しなくても
+Console用完成定義として出力できます。
 
 16進表記を選択したパラメーターは、完成定義の`default`とEnumの`choices`キーを
 `"0x0123"`形式の文字列で出力します。Command ConsoleはJSON数値、10進文字列、

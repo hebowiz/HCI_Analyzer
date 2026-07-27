@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from hci_analyzer.command_builder.definitions import (
+    COMMAND_DEFINITIONS_BY_OPCODE,
     ParameterDefinition,
     ParameterKind,
 )
@@ -34,6 +35,23 @@ class CommandConsoleWindowTests(unittest.TestCase):
             ),
             "v1",
         )
+
+    def test_command_selection_passes_the_exact_definition(self) -> None:
+        definition = COMMAND_DEFINITIONS_BY_OPCODE[0x2034]
+        window = object.__new__(CommandConsoleWindow)
+        window._category_variable = Mock()
+        window._command_variable = Mock()
+        window._version_variable = Mock()
+        window._category_variable.get.return_value = definition.category
+        window._command_variable.get.return_value = definition.name
+        window._version_variable.get.return_value = definition.version
+        key = (definition.category, definition.name, definition.version)
+        window._definition_lookup = {key: definition}
+        window._on_command_selected = Mock()
+
+        window._select_definition()
+
+        window._on_command_selected.assert_called_once_with(definition)
 
     def test_first_version_is_used_when_v2_is_unavailable(self) -> None:
         self.assertEqual(
