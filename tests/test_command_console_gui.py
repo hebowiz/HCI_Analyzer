@@ -15,10 +15,45 @@ from hci_analyzer.gui.command_console import (
     CommandConsoleWindow,
     _format_parameter_description,
     _format_parameter_input,
+    _parameter_grid_position,
+    _parameter_label_width,
 )
 
 
 class CommandConsoleWindowTests(unittest.TestCase):
+    def test_even_parameters_fill_left_column_then_right_column(self) -> None:
+        self.assertEqual(
+            [_parameter_grid_position(index, 6) for index in range(6)],
+            [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)],
+        )
+
+    def test_odd_parameters_put_one_more_in_left_column(self) -> None:
+        self.assertEqual(
+            [_parameter_grid_position(index, 5) for index in range(5)],
+            [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1)],
+        )
+
+    def test_parameter_labels_share_the_longest_measured_width(self) -> None:
+        parameters = (
+            ParameterDefinition(
+                name="short",
+                label="PHY",
+                kind=ParameterKind.INTEGER,
+            ),
+            ParameterDefinition(
+                name="long",
+                label="Modulation Index",
+                kind=ParameterKind.INTEGER,
+            ),
+        )
+
+        width = _parameter_label_width(
+            parameters,
+            lambda text: len(text) * 8,
+        )
+
+        self.assertEqual(width, len("Modulation Index") * 8)
+
     def test_v2_is_preferred_when_available(self) -> None:
         self.assertEqual(
             CommandConsoleWindow._preferred_version(

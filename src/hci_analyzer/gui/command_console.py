@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import tkinter as tk
+import tkinter.font as tkfont
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -239,12 +240,24 @@ class CommandConsoleWindow:
 
         if not definition.parameters:
             ttk.Label(self._parameter_frame, text="パラメーターはありません。").grid(
-                row=0, column=0, sticky="w", pady=8
+                row=0, column=0, columnspan=2, sticky="w", pady=8
             )
 
+        parameter_count = len(definition.parameters)
+        label_minimum_width = _parameter_label_width(
+            definition.parameters,
+            tkfont.nametofont("TkDefaultFont").measure,
+        )
         for index, parameter in enumerate(definition.parameters):
-            self._create_parameter_row(index, parameter)
-        self._parameter_frame.columnconfigure(1, weight=1)
+            row, column = _parameter_grid_position(index, parameter_count)
+            self._create_parameter_row(
+                row,
+                parameter,
+                column=column,
+                label_minimum_width=label_minimum_width,
+            )
+        self._parameter_frame.columnconfigure(0, weight=1, uniform="parameter")
+        self._parameter_frame.columnconfigure(1, weight=1, uniform="parameter")
         self._root.after_idle(lambda: self._parameter_canvas.yview_moveto(0.0))
         self._notify_values_changed()
 
@@ -562,8 +575,15 @@ class CommandConsoleWindow:
                 scrollregion=self._parameter_canvas.bbox("all")
             ),
         )
-        self._parameter_canvas.create_window(
+        self._parameter_window_id = self._parameter_canvas.create_window(
             (0, 0), window=self._parameter_frame, anchor="nw"
+        )
+        self._parameter_canvas.bind(
+            "<Configure>",
+            lambda event: self._parameter_canvas.itemconfigure(
+                self._parameter_window_id,
+                width=max(1, event.width),
+            ),
         )
         self._parameter_canvas.configure(yscrollcommand=scrollbar.set)
         self._parameter_canvas.grid(row=0, column=0, sticky="nsew")
@@ -650,14 +670,32 @@ class CommandConsoleWindow:
         self._log_text.grid(row=1, column=0, sticky="nsew", padx=6, pady=6)
 
     def _create_parameter_row(
-        self, row: int, parameter: ParameterDefinition
+        self,
+        row: int,
+        parameter: ParameterDefinition,
+        *,
+        column: int = 0,
+        label_minimum_width: int = 0,
     ) -> None:
-        ttk.Label(self._parameter_frame, text=parameter.label).grid(
-            row=row * 3, column=0, sticky="nw", padx=(0, 8), pady=(3, 0)
+        cell = ttk.Frame(self._parameter_frame, padding=(4, 2, 8, 2))
+        cell.grid(
+            row=row,
+            column=column,
+            sticky="nsew",
+            padx=((0, 8) if column == 0 else (8, 0)),
+        )
+        cell.columnconfigure(0, minsize=label_minimum_width)
+        cell.columnconfigure(1, weight=1)
+        cell.bind("<MouseWheel>", self._scroll_parameter_canvas)
+        cell.bind("<Button-4>", self._scroll_parameter_canvas)
+        cell.bind("<Button-5>", self._scroll_parameter_canvas)
+
+        ttk.Label(cell, text=parameter.label).grid(
+            row=0, column=0, sticky="nw", padx=(0, 8), pady=(3, 0)
         )
         if parameter.kind == ParameterKind.INTEGER_ARRAY:
-            frame = ttk.Frame(self._parameter_frame)
-            frame.grid(row=row * 3, column=1, sticky="w", pady=(3, 0))
+            frame = ttk.Frame(cell)
+            frame.grid(row=0, column=1, sticky="w", pady=(3, 0))
             editor = _IntegerArrayEditor(
                 frame, list(parameter.default), self._notify_values_changed
             )
@@ -677,25 +715,25 @@ class CommandConsoleWindow:
             variable = tk.StringVar(value=default_display)
             variable.trace_add("write", lambda *_args: self._notify_values_changed())
             widget = ttk.Combobox(
-                self._parameter_frame,
+                cell,
                 textvariable=variable,
                 values=list(display_to_value),
                 state="readonly",
                 width=24,
             )
-            widget.grid(row=row * 3, column=1, sticky="w", pady=(3, 0))
+            widget.grid(row=0, column=1, sticky="w", pady=(3, 0))
             self._parameter_vars[parameter.name] = variable
             self._enum_display_to_value[parameter.name] = display_to_value
             self._enum_full_descriptions[parameter.name] = dict(parameter.choices)
             detail = ttk.Label(
-                self._parameter_frame,
+                cell,
                 foreground="#555555",
-                wraplength=520,
+                wraplength=320,
             )
             detail.grid(
-                row=(row * 3) + 1,
+                row=1,
                 column=1,
-                columnspan=3,
+                columnspan=2,
                 sticky="w",
                 pady=(1, 0),
             )
@@ -710,11 +748,11 @@ class CommandConsoleWindow:
             )
             variable.trace_add("write", lambda *_args: self._notify_values_changed())
             widget = ttk.Entry(
-                self._parameter_frame,
+                cell,
                 textvariable=variable,
                 width=24,
             )
-            widget.grid(row=row * 3, column=1, sticky="w", pady=(3, 0))
+            widget.grid(row=0, column=1, sticky="w", pady=(3, 0))
             self._parameter_vars[parameter.name] = variable
             if (
                 parameter.description
@@ -722,14 +760,14 @@ class CommandConsoleWindow:
                 and self._current_definition.vendor_specific
             ):
                 detail = ttk.Label(
-                    self._parameter_frame,
+                    cell,
                     foreground="#555555",
-                    wraplength=520,
+                    wraplength=320,
                 )
                 detail.grid(
-                    row=(row * 3) + 1,
+                    row=1,
                     column=1,
-                    columnspan=3,
+                    columnspan=2,
                     sticky="w",
                     pady=(1, 0),
                 )
@@ -737,14 +775,14 @@ class CommandConsoleWindow:
 
         self._parameter_widgets[parameter.name] = widget
         if parameter.unit:
-            ttk.Label(self._parameter_frame, text=parameter.unit).grid(
-                row=row * 3, column=2, sticky="w", padx=(6, 0), pady=(3, 0)
+            ttk.Label(cell, text=parameter.unit).grid(
+                row=0, column=2, sticky="w", padx=(6, 0), pady=(3, 0)
             )
-        error = ttk.Label(self._parameter_frame, foreground="#B00020")
+        error = ttk.Label(cell, foreground="#B00020")
         error.grid(
-            row=(row * 3) + 2,
+            row=2,
             column=1,
-            columnspan=3,
+            columnspan=2,
             sticky="w",
             pady=(0, 2),
         )
@@ -1003,6 +1041,24 @@ def _format_parameter_input(
     size = parameter.size if isinstance(parameter.size, int) else 1
     sign = "-" if number < 0 else ""
     return f"{sign}0x{abs(number):0{size * 2}X}"
+
+
+def _parameter_grid_position(index: int, parameter_count: int) -> tuple[int, int]:
+    """Place definitions down the left column, then down the right column."""
+    if not 0 <= index < parameter_count:
+        raise ValueError("Parameter index is outside the definition list")
+    left_count = (parameter_count + 1) // 2
+    if index < left_count:
+        return index, 0
+    return index - left_count, 1
+
+
+def _parameter_label_width(
+    parameters: tuple[ParameterDefinition, ...],
+    measure: Callable[[str], int],
+) -> int:
+    """Return one shared pixel width for labels in both parameter columns."""
+    return max((measure(parameter.label) for parameter in parameters), default=0)
 
 
 def _parse_display_integer(value: object) -> int:
