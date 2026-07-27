@@ -290,6 +290,8 @@ def build_console_definition(
         }
         if parameter.unit:
             field["unit"] = parameter.unit
+        if parameter.description:
+            field["description"] = parameter.description
         offset = int(candidate["offset"])
         data_type = str(candidate["type"])
         size = int(candidate["size"])

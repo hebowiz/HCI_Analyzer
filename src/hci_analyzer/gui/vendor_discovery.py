@@ -656,10 +656,22 @@ class VendorDiscoveryWindow:
             self._command_name_variable.set("")
 
     def _refresh_capture_tree(self, select_capture_id: str | None = None) -> None:
+        self._refresh_capture_tree_selection(
+            select_capture_ids=(
+                (select_capture_id,) if select_capture_id is not None else ()
+            )
+        )
+
+    def _refresh_capture_tree_selection(
+        self,
+        *,
+        select_capture_ids: tuple[str, ...] = (),
+    ) -> None:
         for item_id in self._capture_tree.get_children():
             self._capture_tree.delete(item_id)
         self._capture_rows.clear()
-        selected_row: str | None = None
+        target_ids = set(select_capture_ids)
+        selected_rows: list[str] = []
         groups = self._store.groups(
             group_duplicates=self._group_duplicates_variable.get()
         )
@@ -679,11 +691,10 @@ class VendorDiscoveryWindow:
             first = group.first
             item_id = f"row:{index}"
             self._capture_rows[item_id] = group.entries
-            if any(
-                entry.capture_id == select_capture_id
-                for entry in group.entries
+            if target_ids.intersection(
+                entry.capture_id for entry in group.entries
             ):
-                selected_row = item_id
+                selected_rows.append(item_id)
             vendor = first.vendor_capture
             annotations = (
                 ", ".join(
@@ -710,10 +721,10 @@ class VendorDiscoveryWindow:
                     group.count,
                 ),
             )
-        if selected_row is not None:
-            self._capture_tree.selection_set(selected_row)
-            self._capture_tree.focus(selected_row)
-            self._capture_tree.see(selected_row)
+        if selected_rows:
+            self._capture_tree.selection_set(*selected_rows)
+            self._capture_tree.focus(selected_rows[0])
+            self._capture_tree.see(selected_rows[0])
         self._restore_button.configure(
             state=tk.NORMAL if self._store.can_restore else tk.DISABLED
         )
@@ -853,9 +864,10 @@ class VendorDiscoveryWindow:
                 parent=self._root,
             )
             return
+        selected_entries = self._selected_capture_entries()
         selected = [
             entry.vendor_capture
-            for entry in self._selected_capture_entries()
+            for entry in selected_entries
             if entry.opcode == opcode and entry.vendor_capture is not None
         ]
         if not selected:
@@ -871,7 +883,11 @@ class VendorDiscoveryWindow:
         parameter.status = "not_analyzed"
         parameter.candidates.clear()
         parameter.confirmed_candidate = None
-        self._refresh_capture_tree()
+        self._refresh_capture_tree_selection(
+            select_capture_ids=tuple(
+                entry.capture_id for entry in selected_entries
+            )
+        )
         self._refresh_parameter_tree(parameter.name)
         self._status_variable.set(
             f"{len(selected)}件へ {parameter.name}={value} を設定しました"
@@ -1196,7 +1212,7 @@ class _ParameterDialog:
             ("単位", unit, "entry"),
             ("JSON数値表記", number_format, "number_format"),
             ("選択肢（カンマ区切り）", choices, "entry"),
-            ("説明", description, "entry"),
+            ("説明（入力値は value）", description, "entry"),
         )
         initial_focus: tk.Widget | None = None
         for row, (label, variable, editor) in enumerate(fields):

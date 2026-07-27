@@ -295,6 +295,9 @@ def _load_parameter(
     unit = item.get("unit")
     if not isinstance(unit, str):
         unit = None
+    description = item.get("description", "")
+    if not isinstance(description, str):
+        raise ValueError(f"{location}.description must be a string")
     number_format = item.get("number_format", "decimal")
     if number_format not in ("decimal", "hex"):
         raise ValueError(
@@ -309,6 +312,7 @@ def _load_parameter(
         maximum=maximum,
         default=default,
         choices=choices,
+        description=description,
         unit=unit,
         byte_offset=offset,
         encoding_type=encoding_type,

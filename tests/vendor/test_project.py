@@ -89,6 +89,7 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
             name="phy",
             display_name="PHY",
             kind="enum",
+            description="PHY selection",
             choices=["LE_1M", "LE_2M"],
         )
         parameter.set_candidates(analysis.candidates["phy"])
@@ -113,6 +114,10 @@ class VendorDiscoveryProjectTests(unittest.TestCase):
 
         self.assertEqual(loaded.definitions[0].name, "Vendor_Set_PHY")
         self.assertEqual(loaded.definitions[0].parameters[0].choices[1], "LE_2M")
+        self.assertEqual(
+            loaded.definitions[0].parameters[0].description,
+            "PHY selection",
+        )
         self.assertFalse(loaded.review_required)
 
     def test_zero_parameter_command_exports_console_compatible_definition(

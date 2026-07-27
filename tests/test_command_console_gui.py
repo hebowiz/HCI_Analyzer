@@ -13,6 +13,7 @@ from hci_analyzer.command_builder.definitions import (
 )
 from hci_analyzer.gui.command_console import (
     CommandConsoleWindow,
+    _format_parameter_description,
     _format_parameter_input,
 )
 
@@ -168,6 +169,43 @@ class CommandConsoleWindowTests(unittest.TestCase):
         )
 
         self.assertEqual(_format_parameter_input(parameter, 19), "19")
+
+    def test_parameter_description_calculates_from_current_value(self) -> None:
+        self.assertEqual(
+            _format_parameter_description(
+                "Frequency = 2402 + value * 2",
+                "19",
+            ),
+            "Frequency = 2402 + value * 2 \u2192 2440",
+        )
+
+    def test_parameter_description_supports_hexadecimal_input(self) -> None:
+        self.assertEqual(
+            _format_parameter_description("Result = value + 1", "0x0F"),
+            "Result = value + 1 \u2192 16",
+        )
+
+    def test_parameter_description_does_not_execute_unsafe_expression(
+        self,
+    ) -> None:
+        description = "Result = __import__('os').system(value)"
+
+        self.assertEqual(
+            _format_parameter_description(description, "1"),
+            description,
+        )
+
+    def test_parameter_description_calculation_can_be_disabled(self) -> None:
+        description = "Frequency = 2402 + value * 2"
+
+        self.assertEqual(
+            _format_parameter_description(
+                description,
+                "19",
+                enable_calculation=False,
+            ),
+            description,
+        )
 
 if __name__ == "__main__":
     unittest.main()

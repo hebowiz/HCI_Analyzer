@@ -91,6 +91,55 @@ class VendorDiscoveryWindowTests(unittest.TestCase):
         self.assertEqual(inserted_values[2], "選択値（Enum）")
         self.assertEqual(inserted_values[3], "未解析")
 
+    def test_known_value_assignment_preserves_selected_captures(self) -> None:
+        window = object.__new__(VendorDiscoveryWindow)
+        parameter = UserParameter(
+            name="channel",
+            display_name="Channel",
+            kind="unsigned",
+        )
+        first = self._vendor_entry("vendor:1")
+        second = self._vendor_entry("vendor:2")
+        window._active_opcode = 0xFC41
+        window._selected_parameter = Mock(return_value=parameter)
+        window._selected_capture_entries = Mock(
+            return_value=[first, second]
+        )
+        window._known_value_variable = Mock()
+        window._known_value_variable.get.return_value = "19"
+        window._refresh_capture_tree_selection = Mock()
+        window._refresh_parameter_tree = Mock()
+        window._status_variable = Mock()
+
+        window._assign_known_value()
+
+        self.assertEqual(first.vendor_capture.annotations["channel"], "19")
+        self.assertEqual(second.vendor_capture.annotations["channel"], "19")
+        window._refresh_capture_tree_selection.assert_called_once_with(
+            select_capture_ids=("vendor:1", "vendor:2")
+        )
+
+    @staticmethod
+    def _vendor_entry(capture_id: str) -> DiscoveryCapture:
+        vendor = VendorCapture(
+            capture_id=capture_id,
+            source_path=Path("<live>"),
+            line_number=1,
+            timestamp="2026-07-27T12:00:00",
+            source="Port1",
+            opcode=0xFC41,
+            parameters=b"\x13",
+            raw_data=bytes.fromhex("01 41 FC 01 13"),
+        )
+        return DiscoveryCapture(
+            capture_id=capture_id,
+            timestamp=vendor.timestamp,
+            source=vendor.source,
+            protocol="HCI Vendor",
+            raw_data=vendor.raw_data,
+            vendor_capture=vendor,
+        )
+
     def test_analysis_result_text_is_forced_to_ascii(self) -> None:
         window = object.__new__(VendorDiscoveryWindow)
         window._report_text = Mock()

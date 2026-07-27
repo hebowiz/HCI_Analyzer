@@ -194,6 +194,12 @@ shared_parameter_values = {
 }
 ```
 
+外部Vendor Commandのパラメーター定義にある`description`は入力欄の下へ表示する。Descriptionに
+`Frequency = 2402 + value * 2`のような式がある場合、`value`を現在の入力値として
+安全な算術式だけを評価し、`→ 2440`のように派生値を即時表示する。
+標準CommandのDescriptionは計算対象にしない。外部Vendor定義にDescriptionが
+ない場合も従来どおり読み込める。
+
 - 入力変更時に現在選択中のOpcode、Command名、Versionのキャッシュを更新する
 - 同時に、Command名とパラメーター名が一致する共通値を更新する
 - コマンド再選択時はキャッシュ値をフォームへ設定する

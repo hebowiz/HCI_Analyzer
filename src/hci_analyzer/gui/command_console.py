@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -139,6 +140,7 @@ class CommandConsoleWindow:
         self._enum_display_to_value: dict[str, dict[str, int]] = {}
         self._enum_full_descriptions: dict[str, dict[int, str]] = {}
         self._enum_detail_labels: dict[str, ttk.Label] = {}
+        self._parameter_detail_labels: dict[str, ttk.Label] = {}
         self._array_editors: dict[str, _IntegerArrayEditor] = {}
         self._error_labels: dict[str, ttk.Label] = {}
         self._parameter_widgets: dict[str, tk.Widget] = {}
@@ -230,6 +232,7 @@ class CommandConsoleWindow:
         self._enum_display_to_value.clear()
         self._enum_full_descriptions.clear()
         self._enum_detail_labels.clear()
+        self._parameter_detail_labels.clear()
         self._array_editors.clear()
         self._error_labels.clear()
         self._parameter_widgets.clear()
@@ -697,6 +700,7 @@ class CommandConsoleWindow:
                 pady=(1, 0),
             )
             self._enum_detail_labels[parameter.name] = detail
+            self._parameter_detail_labels[parameter.name] = detail
         else:
             variable = tk.StringVar(
                 value=_format_parameter_input(
@@ -712,6 +716,24 @@ class CommandConsoleWindow:
             )
             widget.grid(row=row * 3, column=1, sticky="w", pady=(3, 0))
             self._parameter_vars[parameter.name] = variable
+            if (
+                parameter.description
+                and self._current_definition is not None
+                and self._current_definition.vendor_specific
+            ):
+                detail = ttk.Label(
+                    self._parameter_frame,
+                    foreground="#555555",
+                    wraplength=520,
+                )
+                detail.grid(
+                    row=(row * 3) + 1,
+                    column=1,
+                    columnspan=3,
+                    sticky="w",
+                    pady=(1, 0),
+                )
+                self._parameter_detail_labels[parameter.name] = detail
 
         self._parameter_widgets[parameter.name] = widget
         if parameter.unit:
@@ -788,25 +810,49 @@ class CommandConsoleWindow:
     def _notify_values_changed(self) -> None:
         if self._suspend_change_callback or self._current_definition is None:
             return
-        self._update_enum_details()
+        self._update_parameter_details()
         self._update_conditional_widgets()
         self._on_preview(self.get_parameter_values())
 
-    def _update_enum_details(self) -> None:
-        for name, detail_label in self._enum_detail_labels.items():
+    def _update_parameter_details(self) -> None:
+        definitions = {
+            parameter.name: parameter
+            for parameter in (
+                self._current_definition.parameters
+                if self._current_definition is not None
+                else ()
+            )
+        }
+        for name, detail_label in self._parameter_detail_labels.items():
+            parameter = definitions.get(name)
             variable = self._parameter_vars.get(name)
+            if parameter is None or variable is None:
+                continue
+            details: list[str] = []
             display_mapping = self._enum_display_to_value.get(name)
             descriptions = self._enum_full_descriptions.get(name)
-            if variable is None or display_mapping is None or descriptions is None:
-                continue
-            value = display_mapping.get(variable.get())
-            if value is None:
-                detail_label.configure(text="")
-                continue
-            description = descriptions.get(value, "")
-            detail_label.configure(
-                text=f"選択値: {description} (0x{value:02X})"
-            )
+            if display_mapping is not None and descriptions is not None:
+                value: object = display_mapping.get(variable.get())
+                if isinstance(value, int):
+                    description = descriptions.get(value, "")
+                    details.append(
+                        f"選択値: {description} (0x{value:02X})"
+                    )
+            else:
+                value = variable.get()
+            if (
+                parameter.description
+                and self._current_definition is not None
+                and self._current_definition.vendor_specific
+            ):
+                details.append(
+                    _format_parameter_description(
+                        parameter.description,
+                        value,
+                        enable_calculation=True,
+                    )
+                )
+            detail_label.configure(text="\n".join(details))
 
     @staticmethod
     def _short_enum_label(name: str, value: int, full_label: str) -> str:
@@ -970,3 +1016,64 @@ def _parse_display_integer(value: object) -> int:
     signless = text[1:] if text.startswith(("+", "-")) else text
     base = 16 if signless.lower().startswith("0x") else 10
     return int(text, base)
+
+
+def _format_parameter_description(
+    description: str,
+    value: object,
+    *,
+    enable_calculation: bool = True,
+) -> str:
+    """Append a safely evaluated result when a description uses ``value``."""
+    if not enable_calculation or "value" not in description:
+        return description
+    expression = description.rsplit("=", 1)[-1].strip()
+    try:
+        number = _parse_display_integer(value)
+        result = _evaluate_display_expression(expression, number)
+    except (TypeError, ValueError, ZeroDivisionError, SyntaxError):
+        return description
+    if isinstance(result, float) and result.is_integer():
+        result = int(result)
+    return f"{description} \u2192 {result}"
+
+
+def _evaluate_display_expression(expression: str, value: int) -> int | float:
+    tree = ast.parse(expression, mode="eval")
+    if sum(1 for _ in ast.walk(tree)) > 32:
+        raise ValueError("Display expression is too complex")
+
+    def evaluate(node: ast.AST) -> int | float:
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(
+                node.value, (int, float)
+            ):
+                raise ValueError("Unsupported constant")
+            return node.value
+        if isinstance(node, ast.Name) and node.id == "value":
+            return value
+        if isinstance(node, ast.UnaryOp) and isinstance(
+            node.op, (ast.UAdd, ast.USub)
+        ):
+            operand = evaluate(node.operand)
+            return operand if isinstance(node.op, ast.UAdd) else -operand
+        if isinstance(node, ast.BinOp):
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                return left / right
+            if isinstance(node.op, ast.FloorDiv):
+                return left // right
+            if isinstance(node.op, ast.Mod):
+                return left % right
+        raise ValueError("Unsupported display expression")
+
+    return evaluate(tree)
