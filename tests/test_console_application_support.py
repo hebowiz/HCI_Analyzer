@@ -341,6 +341,56 @@ class CommandConsoleSupportTests(unittest.TestCase):
         )
         self.assertNotIn(7, self.application._transaction_definitions)
 
+    def test_vendor_command_complete_definition_decodes_received_parameters(
+        self,
+    ) -> None:
+        payload = _vendor_definition_payload()
+        payload["commands"][0]["response"] = {
+            "kind": "command_complete",
+            "parameter_length": 3,
+            "parameters": [
+                {
+                    "name": "status_code",
+                    "label": "Status",
+                    "offset": 0,
+                    "type": "enum_u8",
+                    "number_format": "hex",
+                    "choices": {"0x00": "Success", "0x01": "Failed"},
+                },
+                {
+                    "name": "result",
+                    "label": "Result",
+                    "offset": 1,
+                    "type": "uint16_le",
+                    "number_format": "hex",
+                },
+            ],
+        }
+        definition = _load_vendor_definition_for_test(payload)
+        self.application._selectable_definitions.append(definition)
+        self.application._transaction_definitions[8] = definition
+        parsed = HciCommandEncoder()._parser.parse_hex_string(
+            "04 0E 06 01 41 FC 00 34 12"
+        )
+        event = TransportEvent(
+            timestamp=datetime.now().astimezone(),
+            kind=TransportEventKind.RECEIVED,
+            source="Test",
+            parsed=parsed,
+            transaction_id=8,
+        )
+
+        self.application._handle_transport_event(event)
+
+        response = parsed.decoded["vendor_response_parameters"]
+        self.assertEqual(response["status_code"], "0x00")
+        self.assertEqual(response["status_code_name"], "Success")
+        self.assertEqual(response["result"], "0x1234")
+        log = "\n".join(format_transport_event(event))
+        self.assertIn("Decoded Return Parameters:", log)
+        self.assertIn("Status                 : Success (0x00)", log)
+        self.assertIn("Result                 : 0x1234", log)
+
     def test_port_connection_events_do_not_reset_capability_result(self) -> None:
         self.application._command_support = {0x201D: False}
         for kind in (

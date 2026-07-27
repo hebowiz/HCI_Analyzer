@@ -122,11 +122,49 @@ def decode_vendor_parameters(
     data: bytes,
 ) -> dict[str, Any]:
     """Decode reviewed fields while preserving the complete parameter RAW."""
+    return _decode_parameter_fields(definition.parameters, data)
+
+
+def decode_vendor_command_complete(
+    definition: ConsoleCommandDefinition,
+    data: bytes,
+) -> dict[str, Any]:
+    """Decode Command Complete Return Parameters from an external definition."""
     decoded: dict[str, Any] = {
         "raw_hex": data.hex(" ").upper(),
         "raw_bytes": list(data),
     }
-    for parameter in definition.parameters:
+    expected_length = definition.response_parameter_length
+    if expected_length is None:
+        return decoded
+    if len(data) != expected_length:
+        decoded["decode_error"] = (
+            "Return Parameter length mismatch: "
+            f"expected {expected_length}, received {len(data)}"
+        )
+        return decoded
+    decoded.update(_decode_parameter_fields(definition.response_parameters, data))
+    decoded["field_labels"] = {
+        parameter.name: parameter.label
+        for parameter in definition.response_parameters
+    }
+    decoded["field_units"] = {
+        parameter.name: parameter.unit
+        for parameter in definition.response_parameters
+        if parameter.unit
+    }
+    return decoded
+
+
+def _decode_parameter_fields(
+    parameters: tuple[ParameterDefinition, ...],
+    data: bytes,
+) -> dict[str, Any]:
+    decoded: dict[str, Any] = {
+        "raw_hex": data.hex(" ").upper(),
+        "raw_bytes": list(data),
+    }
+    for parameter in parameters:
         offset = parameter.byte_offset
         encoding_type = parameter.encoding_type
         if offset is None or encoding_type not in SUPPORTED_FIELD_TYPES:
@@ -216,13 +254,25 @@ def _load_command(
         parameters.append(parameter)
 
     response = command.get("response", {})
-    response_kind = _response_kind(response)
+    (
+        response_kind,
+        response_parameter_length,
+        response_parameters,
+    ) = _load_response(response, index)
     review_required = (
         root_review_required
         or command.get("review_required") is True
         or any(
             isinstance(item, dict) and item.get("review_required") is True
             for item in raw_parameters
+        )
+        or (
+            isinstance(response, dict)
+            and any(
+                isinstance(item, dict)
+                and item.get("review_required") is True
+                for item in response.get("parameters", [])
+            )
         )
     )
     return ConsoleCommandDefinition(
@@ -236,6 +286,8 @@ def _load_command(
         parameter_template=template,
         review_required=review_required,
         external_source=str(path),
+        response_parameter_length=response_parameter_length,
+        response_parameters=response_parameters,
     )
 
 
@@ -245,9 +297,11 @@ def _load_parameter(
     command_index: int,
     parameter_index: int,
     parameter_length: int,
-    template: bytes,
+    template: bytes | None,
+    location: str | None = None,
 ) -> ParameterDefinition:
-    location = f"commands[{command_index}].parameters[{parameter_index}]"
+    if location is None:
+        location = f"commands[{command_index}].parameters[{parameter_index}]"
     if not isinstance(item, dict):
         raise ValueError(f"{location} must be an object")
     name = item.get("name")
@@ -272,10 +326,14 @@ def _load_parameter(
     )
     raw_default = item.get("default")
     if raw_default is None:
-        default = int.from_bytes(
-            template[offset : offset + size],
-            byte_order,
-            signed=signed,
+        default = (
+            int.from_bytes(
+                template[offset : offset + size],
+                byte_order,
+                signed=signed,
+            )
+            if template is not None
+            else None
         )
     else:
         try:
@@ -285,9 +343,9 @@ def _load_parameter(
                 f"{location}.default must be an integer, decimal string, "
                 "or hexadecimal string"
             ) from exc
-    if not minimum <= default <= maximum:
+    if default is not None and not minimum <= default <= maximum:
         raise ValueError(f"{location}.default is outside the type range")
-    if choices and default not in choices:
+    if default is not None and choices and default not in choices:
         raise ValueError(f"{location}.default is not present in choices")
     label = item.get("label", name)
     if not isinstance(label, str) or not label.strip():
@@ -318,6 +376,75 @@ def _load_parameter(
         encoding_type=encoding_type,
         number_format=number_format,
     )
+
+
+def _load_response(
+    value: Any,
+    command_index: int,
+) -> tuple[ResponseKind, int | None, tuple[ParameterDefinition, ...]]:
+    response_kind = _response_kind(value)
+    if not isinstance(value, dict):
+        return response_kind, None, ()
+    raw_parameters = value.get("parameters", [])
+    if not isinstance(raw_parameters, list):
+        raise ValueError(
+            f"commands[{command_index}].response.parameters must be an array"
+        )
+    raw_length = value.get("parameter_length")
+    if raw_length is None and not raw_parameters:
+        return response_kind, None, ()
+    if (
+        not isinstance(raw_length, int)
+        or isinstance(raw_length, bool)
+        or not 0 <= raw_length <= 0xFF
+    ):
+        raise ValueError(
+            f"commands[{command_index}].response.parameter_length must be "
+            "between 0 and 255"
+        )
+    if raw_parameters and response_kind != ResponseKind.COMMAND_COMPLETE:
+        raise ValueError(
+            f"commands[{command_index}].response.parameters currently support "
+            "only command_complete"
+        )
+
+    parameters: list[ParameterDefinition] = []
+    occupied: dict[int, str] = {}
+    names: set[str] = set()
+    for parameter_index, item in enumerate(raw_parameters):
+        location = (
+            f"commands[{command_index}].response.parameters[{parameter_index}]"
+        )
+        parameter = _load_parameter(
+            item,
+            command_index=command_index,
+            parameter_index=parameter_index,
+            parameter_length=raw_length,
+            template=None,
+            location=location,
+        )
+        assert parameter.byte_offset is not None
+        assert parameter.encoding_type is not None
+        if parameter.name in names:
+            raise ValueError(
+                f"commands[{command_index}].response contains duplicate "
+                f"parameter name {parameter.name}"
+            )
+        names.add(parameter.name)
+        size = SUPPORTED_FIELD_TYPES[parameter.encoding_type][0]
+        for byte_index in range(
+            parameter.byte_offset,
+            parameter.byte_offset + size,
+        ):
+            if byte_index in occupied:
+                raise ValueError(
+                    f"commands[{command_index}].response parameters "
+                    f"{occupied[byte_index]} and {parameter.name} overlap at "
+                    f"byte {byte_index}"
+                )
+            occupied[byte_index] = parameter.name
+        parameters.append(parameter)
+    return response_kind, raw_length, tuple(parameters)
 
 
 def _parse_opcode(value: Any, command_index: int) -> int:

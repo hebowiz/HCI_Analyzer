@@ -207,6 +207,18 @@ Canvas内部フレームは表示幅へ追従させ、左右の列へ同じ幅�
 標準CommandのDescriptionは計算対象にしない。外部Vendor定義にDescriptionが
 ない場合も従来どおり読み込める。
 
+外部Vendor定義の`response.kind`が`command_complete`の場合、
+`response.parameter_length`と`response.parameters`を任意で定義できる。
+Response ParameterのOffsetはCommand CompleteのReturn Parameters先頭を0とし、
+通常はStatusがOffset 0となる。送信トランザクションに保存した定義と応答内Opcodeを
+照合した後、送信時に選択した同一OpcodeバリアントのResponse定義を適用する。
+
+Response ParameterはCommand Parameterと同じ整数型、エンディアン、Enum、
+10進／16進表示、Label、Unitを利用できる。受信長が`parameter_length`と異なる
+場合はEventを破棄せず、Return ParametersのRAWとDecode Errorをログへ表示する。
+初期実装ではCommand StatusおよびVendor Specific Eventの外部パラメーター定義は
+対象外とする。
+
 - 入力変更時に現在選択中のOpcode、Command名、Versionのキャッシュを更新する
 - 同時に、Command名とパラメーター名が一致する共通値を更新する
 - コマンド再選択時はキャッシュ値をフォームへ設定する

@@ -106,6 +106,40 @@ Vendor Commandを使用する場合は、接続設定欄の「Vendor定義読込
 バリアント名へ紐付けます。
 定義はアプリ終了後まで記憶しないため、次回起動時は再度読み込んでください。
 
+外部Vendor定義には、Command CompleteのReturn Parametersを記述できます。
+
+```json
+"response": {
+  "kind": "command_complete",
+  "parameter_length": 3,
+  "parameters": [
+    {
+      "name": "status_code",
+      "label": "Status",
+      "offset": 0,
+      "type": "enum_u8",
+      "number_format": "hex",
+      "choices": {
+        "0x00": "Success",
+        "0x01": "Failed"
+      }
+    },
+    {
+      "name": "result",
+      "label": "Result",
+      "offset": 1,
+      "type": "uint16_le",
+      "number_format": "hex"
+    }
+  ]
+}
+```
+
+`parameter_length`はStatusを含むReturn Parameters全体の長さです。`offset: 0`は
+H4 Event先頭ではなくReturn Parametersの先頭を示します。Command Complete内の
+Event Code、Num_HCI_Command_Packets、Command OpcodeはConsoleが自動処理します。
+受信長が定義と一致しない場合はRAWを保持し、ログへ長さ不一致を表示します。
+
 ### 起動
 
 ```powershell

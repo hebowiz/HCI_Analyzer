@@ -30,6 +30,7 @@ from hci_analyzer.serial.transport import (
     TransportEventKind,
 )
 from hci_analyzer.vendor.console_definitions import (
+    decode_vendor_command_complete,
     decode_vendor_parameters,
     load_vendor_console_definitions,
 )
@@ -348,6 +349,19 @@ class HciCommandConsoleApplication:
                 definition,
                 parameters,
             )
+        elif (
+            parsed.packet_type == "HCI_Event"
+            and decoded.get("event_name") == "HCI_Command_Complete"
+            and definition.response_parameter_length is not None
+        ):
+            raw_return_parameters = decoded.get("return_parameters")
+            if isinstance(raw_return_parameters, list):
+                decoded["vendor_response_parameters"] = (
+                    decode_vendor_command_complete(
+                        definition,
+                        bytes(raw_return_parameters),
+                    )
+                )
 
     def _forget_transaction_definition(
         self,

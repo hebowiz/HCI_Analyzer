@@ -74,6 +74,8 @@ class ConsoleCommandDefinition:
     parameter_template: bytes | None = None
     review_required: bool = False
     external_source: str | None = None
+    response_parameter_length: int | None = None
+    response_parameters: tuple[ParameterDefinition, ...] = ()
 
     @property
     def display_name(self) -> str:

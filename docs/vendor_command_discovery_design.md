@@ -241,6 +241,11 @@ Descriptionの最終の`=`より右側に`value`を含む場合、Command Consol
 括弧のみとし、関数呼出し、属性参照、その他の名前は実行しない。式が不正な場合は
 計算せず、元のDescriptionだけを表示する。
 
+Command Consoleは外部定義JSONへ手動追加されたCommand Completeの
+`response.parameter_length`および`response.parameters`を読み込み、Return
+Parametersをデコードできる。Vendor Discoveryから応答パラメーターの位置・型を
+推定してResponse定義を生成する機能は、この段階では対象外とする。
+
 同じByteを複数Fieldが使用する定義、組み込みOpcodeを置換する定義、
 同一Command Name・Versionが重複する定義は拒否する。同一OpcodeでもCommand
 NameまたはVersionが異なる定義は別バリアントとして読み込める。読み込んだ定義は永続化せず、

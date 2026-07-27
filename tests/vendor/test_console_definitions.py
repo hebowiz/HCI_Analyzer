@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hci_analyzer.command_builder.encoder import HciCommandEncoder
 from hci_analyzer.vendor.console_definitions import (
+    decode_vendor_command_complete,
     decode_vendor_parameters,
     encode_vendor_parameters,
     load_vendor_console_definitions,
@@ -255,6 +256,83 @@ class VendorConsoleDefinitionTests(unittest.TestCase):
             loaded.definitions[0].parameters[1].default,
             -10,
         )
+
+    def test_loads_and_decodes_command_complete_parameters(self) -> None:
+        payload = _definition_payload()
+        payload["commands"][0]["response"] = {
+            "kind": "command_complete",
+            "parameter_length": 4,
+            "parameters": [
+                {
+                    "name": "status_code",
+                    "label": "Status",
+                    "offset": 0,
+                    "type": "enum_u8",
+                    "number_format": "hex",
+                    "choices": {
+                        "0x00": "Success",
+                        "0x01": "Failed",
+                    },
+                },
+                {
+                    "name": "result",
+                    "offset": 1,
+                    "type": "uint16_le",
+                    "number_format": "hex",
+                },
+                {
+                    "name": "count",
+                    "offset": 3,
+                    "type": "uint8",
+                },
+            ],
+        }
+
+        definition = _load_payload(payload).definitions[0]
+        decoded = decode_vendor_command_complete(
+            definition,
+            bytes.fromhex("00 34 12 05"),
+        )
+
+        self.assertEqual(definition.response_parameter_length, 4)
+        self.assertEqual(len(definition.response_parameters), 3)
+        self.assertEqual(decoded["status_code"], "0x00")
+        self.assertEqual(decoded["status_code_name"], "Success")
+        self.assertEqual(decoded["result"], "0x1234")
+        self.assertEqual(decoded["count"], 5)
+
+    def test_command_complete_length_mismatch_is_preserved_as_error(self) -> None:
+        payload = _definition_payload()
+        payload["commands"][0]["response"] = {
+            "kind": "command_complete",
+            "parameter_length": 2,
+            "parameters": [
+                {"name": "status", "offset": 0, "type": "uint8"},
+            ],
+        }
+        definition = _load_payload(payload).definitions[0]
+
+        decoded = decode_vendor_command_complete(
+            definition,
+            bytes.fromhex("00"),
+        )
+
+        self.assertIn("length mismatch", decoded["decode_error"])
+        self.assertEqual(decoded["raw_hex"], "00")
+
+    def test_rejects_overlapping_command_complete_parameters(self) -> None:
+        payload = _definition_payload()
+        payload["commands"][0]["response"] = {
+            "kind": "command_complete",
+            "parameter_length": 3,
+            "parameters": [
+                {"name": "first", "offset": 0, "type": "uint16_le"},
+                {"name": "second", "offset": 1, "type": "uint16_le"},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "response parameters.*overlap"):
+            _load_payload(payload)
 
 
 def _load_payload(payload: dict[str, object]):

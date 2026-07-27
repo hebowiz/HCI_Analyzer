@@ -238,6 +238,16 @@ def _format_command_response(
                 decoded.get("return_parameters_hex", "-") or "-",
             )
         )
+        vendor_response = decoded.get("vendor_response_parameters")
+        if isinstance(vendor_response, dict):
+            decode_error = vendor_response.get("decode_error")
+            if decode_error:
+                lines.append(_field("Response Decode", decode_error))
+            else:
+                lines.append("  Decoded Return Parameters:")
+                lines.extend(
+                    _format_vendor_response_parameters(vendor_response)
+                )
     if event_name == "HCI_Command_Status":
         completion = (
             "Command accepted; completion event may follow"
@@ -245,6 +255,46 @@ def _format_command_response(
             else "Command was not started"
         )
         lines.append(_field("Completion", completion))
+    return lines
+
+
+def _format_vendor_response_parameters(
+    parameters: dict[str, Any],
+) -> list[str]:
+    lines: list[str] = []
+    labels = parameters.get("field_labels", {})
+    units = parameters.get("field_units", {})
+    if not isinstance(labels, dict):
+        labels = {}
+    if not isinstance(units, dict):
+        units = {}
+    for key, value in parameters.items():
+        if key in (
+            "raw_hex",
+            "raw_bytes",
+            "decode_error",
+            "field_labels",
+            "field_units",
+        ):
+            continue
+        if key.endswith("_name"):
+            continue
+        choice_name = parameters.get(f"{key}_name")
+        display = (
+            f"{choice_name} ({value})"
+            if choice_name is not None
+            else value
+        )
+        unit = units.get(key)
+        if unit:
+            display = f"{display} {unit}"
+        configured_label = labels.get(key)
+        label = (
+            _humanize(key)
+            if not configured_label or configured_label == key
+            else str(configured_label)
+        )
+        lines.append(_field(label, display))
     return lines
 
 
