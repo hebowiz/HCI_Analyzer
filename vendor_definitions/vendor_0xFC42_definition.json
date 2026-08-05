@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC42",
+      "ogf": 63,
+      "ocf": 66,
+      "name": "Single Tone",
+      "parameter_length": 5,
+      "parameter_template_hex": "27 FF FF 3B 00",
+      "parameters": [
+        {
+          "name": "channel",
+          "label": "Channel",
+          "offset": 0,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2402+value",
+          "default": 39
+        },
+        {
+          "name": "gc",
+          "label": "GC",
+          "offset": 3,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "0-63",
+          "default": 59
+        },
+        {
+          "name": "type",
+          "label": "Type",
+          "offset": 1,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0xFF",
+          "choices": {
+            "0xFF": "250k tone (Output power test)",
+            "0xFE": "DC tone (Frequency test)"
+          }
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

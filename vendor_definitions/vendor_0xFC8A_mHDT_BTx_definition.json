@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC8A",
+      "ogf": 63,
+      "ocf": 138,
+      "name": "mHDT BTx",
+      "parameter_length": 22,
+      "parameter_template_hex": "33 33 01 24 8E 00 00 01 03 03 01 04 00 00 3C 00 7E 96 C6 6B 00 00",
+      "parameters": [
+        {
+          "name": "channel_start",
+          "label": "Channel Start",
+          "offset": 12,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2404+value*2",
+          "default": 0
+        },
+        {
+          "name": "channel_stop",
+          "label": "Channel Stop",
+          "offset": 13,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2404+value*2",
+          "default": 0
+        },
+        {
+          "name": "packet_type",
+          "label": "Packet Type",
+          "offset": 2,
+          "type": "enum_u32_le",
+          "size": 4,
+          "number_format": "hex",
+          "default": "0x008E2401",
+          "choices": {
+            "0x008E2401": "4DH1",
+            "0x03002A01": "4DH3",
+            "0x05702E01": "4DH5",
+            "0x00D62801": "6DH1",
+            "0x047E2B01": "6DH3",
+            "0x08292F01": "6DH5",
+            "0x01402401": "8DH1",
+            "0x06242A01": "8DH3",
+            "0x0B042E01": "8DH5"
+          }
+        },
+        {
+          "name": "pattern_type",
+          "label": "Pattern Type",
+          "offset": 6,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0x00",
+          "choices": {
+            "0x00": "PRBS-9",
+            "0x01": "11110000",
+            "0x02": "10101010",
+            "0x04": "all \"1\"",
+            "0x05": "all \"0\""
+          }
+        },
+        {
+          "name": "gc",
+          "label": "GC",
+          "offset": 14,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "0-63",
+          "default": 60
+        },
+        {
+          "name": "bd_address",
+          "label": "BD Address",
+          "offset": 16,
+          "type": "uint48_le",
+          "size": 6,
+          "number_format": "hex",
+          "description": "6 bytes",
+          "default": "0x00006BC6967E"
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

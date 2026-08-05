@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC45",
+      "ogf": 63,
+      "ocf": 69,
+      "name": "Legacy BRx",
+      "parameter_length": 8,
+      "parameter_template_hex": "27 00 7E 96 C6 6B 00 00",
+      "parameters": [
+        {
+          "name": "channel",
+          "label": "Channel",
+          "offset": 0,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2402+value",
+          "default": 39
+        },
+        {
+          "name": "received_packet",
+          "label": "Received Packet",
+          "offset": 1,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0x00",
+          "choices": {
+            "0x00": "BR",
+            "0x01": "EDR"
+          }
+        },
+        {
+          "name": "bd_address",
+          "label": "BD Address",
+          "offset": 2,
+          "type": "uint48_le",
+          "size": 6,
+          "number_format": "hex",
+          "description": "6 bytes",
+          "default": "0x00006BC6967E"
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

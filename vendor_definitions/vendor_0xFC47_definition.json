@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC47",
+      "ogf": 63,
+      "ocf": 71,
+      "name": "Legacy LE BRx",
+      "parameter_length": 9,
+      "parameter_template_hex": "01 00 D6 BE 89 8E 55 55 55",
+      "parameters": [
+        {
+          "name": "channel",
+          "label": "Channel",
+          "offset": 0,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2402+value*2",
+          "default": 1
+        },
+        {
+          "name": "packet_type",
+          "label": "Packet Type",
+          "offset": 1,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0x00",
+          "choices": {
+            "0x00": "LE1M",
+            "0x01": "LE2M"
+          }
+        },
+        {
+          "name": "access_address",
+          "label": "Access Address",
+          "offset": 2,
+          "type": "uint32_le",
+          "size": 4,
+          "number_format": "hex",
+          "description": "4 bytes",
+          "default": "0x8E89BED6"
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

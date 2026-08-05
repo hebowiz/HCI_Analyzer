@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition_draft",
+  "review_required": true,
+  "commands": [
+    {
+      "opcode": "0xFC8A",
+      "ogf": 63,
+      "ocf": 138,
+      "name": "Vendor_Command_0xFC8A",
+      "parameter_length": 22,
+      "parameter_template_hex": "33 33 00 FF 04 0B 00 FF 03 03 04 04 01 01 3C 00 FF FF FF FF FF FF",
+      "parameters": [
+        {
+          "name": "channel_start",
+          "review_required": true,
+          "candidates": [
+            {
+              "offset": 12,
+              "type": "uint8",
+              "size": 1,
+              "confidence": "high",
+              "sample_count": 4,
+              "distinct_value_count": 3
+            },
+            {
+              "offset": 12,
+              "type": "int8",
+              "size": 1,
+              "confidence": "high",
+              "sample_count": 4,
+              "distinct_value_count": 3
+            }
+          ],
+          "offset": 12,
+          "type": "uint8",
+          "size": 1,
+          "confidence": "high",
+          "default": 0
+        },
+        {
+          "name": "channel_stop",
+          "review_required": true,
+          "candidates": [
+            {
+              "offset": 13,
+              "type": "uint8",
+              "size": 1,
+              "confidence": "high",
+              "sample_count": 4,
+              "distinct_value_count": 4
+            },
+            {
+              "offset": 13,
+              "type": "int8",
+              "size": 1,
+              "confidence": "high",
+              "sample_count": 4,
+              "distinct_value_count": 4
+            }
+          ],
+          "offset": 13,
+          "type": "uint8",
+          "size": 1,
+          "confidence": "high",
+          "default": 0
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

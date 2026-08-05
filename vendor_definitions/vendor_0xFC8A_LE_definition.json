@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC8A",
+      "ogf": 63,
+      "ocf": 138,
+      "name": "mHDT LE BTx",
+      "parameter_length": 22,
+      "parameter_template_hex": "33 33 00 FF 8E 00 00 FF 03 03 04 04 01 01 3C 00 FF FF FF FF FF FF",
+      "parameters": [
+        {
+          "name": "channel_start",
+          "label": "Channel Start",
+          "offset": 3,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "default": 255
+        },
+        {
+          "name": "channel_stop",
+          "label": "Channel Stop",
+          "offset": 18,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "default": 255
+        },
+        {
+          "name": "packet_type",
+          "label": "Packet Type",
+          "offset": 17,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0xFF",
+          "choices": {
+            "0xFF": "BLE4M",
+            "0x00": "mHDT4"
+          }
+        },
+        {
+          "name": "pattern_type",
+          "label": "Pattern Type",
+          "offset": 6,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0x00"
+        },
+        {
+          "name": "gc",
+          "label": "GC",
+          "offset": 14,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "default": 60
+        },
+        {
+          "name": "access_address",
+          "label": "Access Address",
+          "offset": 10,
+          "type": "uint32_be",
+          "size": 4,
+          "number_format": "hex",
+          "default": "0x04040101"
+        },
+        {
+          "name": "payload_length",
+          "label": "Payload Length",
+          "offset": 4,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "default": 142
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

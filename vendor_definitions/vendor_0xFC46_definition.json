@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC46",
+      "ogf": 63,
+      "ocf": 70,
+      "name": "Legacy LE BTx",
+      "parameter_length": 16,
+      "parameter_template_hex": "00 00 00 25 00 3C 00 29 41 76 71 55 55 55 00 00",
+      "parameters": [
+        {
+          "name": "channel_start",
+          "label": "Channel Start",
+          "offset": 0,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2402+value*2",
+          "default": 0
+        },
+        {
+          "name": "channel_stop",
+          "label": "Channel Stop",
+          "offset": 1,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "Freq.[MHz]=2402+value*2",
+          "default": 0
+        },
+        {
+          "name": "packet_type",
+          "label": "Packet Type",
+          "offset": 2,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0x00",
+          "choices": {
+            "0x00": "LE1M",
+            "0x01": "LE2M"
+          }
+        },
+        {
+          "name": "pattern_type",
+          "label": "Pattern Type",
+          "offset": 4,
+          "type": "enum_u8",
+          "size": 1,
+          "number_format": "hex",
+          "default": "0x00",
+          "choices": {
+            "0x00": "PRBS-9",
+            "0x01": "11110000",
+            "0x02": "10101010",
+            "0x04": "all \"1\"",
+            "0x05": "all \"0\""
+          }
+        },
+        {
+          "name": "gc",
+          "label": "GC",
+          "offset": 5,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "description": "0-63",
+          "default": 60
+        },
+        {
+          "name": "access_address",
+          "label": "Access Address",
+          "offset": 7,
+          "type": "uint32_le",
+          "size": 4,
+          "number_format": "hex",
+          "description": "4 bytes",
+          "default": "0x71764129"
+        },
+        {
+          "name": "payload_length",
+          "label": "Payload Length",
+          "offset": 3,
+          "type": "uint8",
+          "size": 1,
+          "number_format": "decimal",
+          "default": 37
+        }
+      ],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}

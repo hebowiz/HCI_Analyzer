@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "hci_vendor_command_definition",
+  "review_required": false,
+  "commands": [
+    {
+      "opcode": "0xFC41",
+      "ogf": 63,
+      "ocf": 65,
+      "name": "BT_Reset",
+      "parameter_length": 0,
+      "parameter_template_hex": "",
+      "parameters": [],
+      "response": {
+        "kind": "unknown"
+      }
+    }
+  ]
+}
