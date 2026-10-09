@@ -14,6 +14,7 @@ from hci_analyzer.command_builder.definitions import (
     SELECTABLE_COMMAND_DEFINITIONS,
 )
 from hci_analyzer.models import ParseResult
+from hci_analyzer.parser.facade import HciParser
 from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 from hci_analyzer.vendor.console_definitions import (
@@ -82,6 +83,7 @@ class CommandConsoleSupportTests(unittest.TestCase):
         self.application._command_support = {}
         self.application._parameter_value_cache = {}
         self.application._shared_parameter_values = {}
+        self.application._parser = HciParser()
         self.application._transaction_definitions = {}
         self.application._selected_definition = None
         self.application._window = _WindowStub()
@@ -187,6 +189,65 @@ class CommandConsoleSupportTests(unittest.TestCase):
             self.application._window.events[-1].kind,
             TransportEventKind.SYSTEM,
         )
+
+    def test_standard_external_definition_does_not_replace_builtin_or_quick_command(self):
+        from tests.vendor.test_standard_defaults import capture_entry
+        from hci_analyzer.vendor.standard_defaults import create_discovery_project
+        from hci_analyzer.vendor.project import build_console_definition
+
+        for raw in ("01 03 0C 00", "01 34 20 04 13 25 00 02"):
+            capture = capture_entry(bytes.fromhex(raw)).vendor_capture
+            project = create_discovery_project(capture)
+            payload = build_console_definition(project, [capture])
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "standard.json"
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.application._window.definition_paths = (path,)
+                self.application._load_vendor_definitions()
+            builtin = COMMAND_DEFINITIONS_BY_OPCODE[capture.opcode]
+            self.assertIs(self.application._definitions_by_opcode[capture.opcode], builtin)
+            external = next(d for d in self.application._window.definitions
+                            if d.is_external and d.opcode == capture.opcode)
+            self.application._select_command(external)
+            self.application._transaction_definitions[123] = external
+            event = TransportEvent(datetime.now(), TransportEventKind.TRANSMITTED, "Test",
+                                   parsed=self.application._parser.parse_bytes(capture.raw_data),
+                                   transaction_id=123)
+            self.application._handle_transport_event(event)
+            self.assertTrue(event.parsed.decoded["external_definition"])
+            if capture.opcode == 0x2034:
+                self.assertIn("LE 2M PHY", "\n".join(format_transport_event(event)))
+
+    def test_standard_unknown_external_response_decodes_and_clears_busy(self):
+        payload = _vendor_definition_payload()
+        payload["review_required"] = False
+        command = payload["commands"][0]
+        command["opcode"] = "0x2001"
+        command["response"] = {"kind": "command_complete", "parameter_length": 1,
+                               "parameters": [{"name": "result", "offset": 0, "type": "uint8"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "unknown_standard.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            self.application._window.definition_paths = (path,)
+            self.application._load_vendor_definitions()
+        definition = self.application._definitions_by_opcode[0x2001]
+        self.application._transaction_definitions[7] = definition
+        self.application._window.busy = True
+        parsed = self.application._parser.parse_hex_string("04 0E 04 01 01 20 00")
+        event = TransportEvent(datetime.now(), TransportEventKind.RECEIVED, "Test",
+                               parsed=parsed, transaction_id=7)
+        self.application._handle_transport_event(event)
+        self.assertEqual(parsed.decoded["vendor_response_parameters"]["result"], 0)
+        self.assertFalse(self.application._window.busy)
+
+    def test_builtin_and_external_parameter_caches_are_separate(self):
+        from dataclasses import replace
+        builtin = COMMAND_DEFINITIONS_BY_OPCODE[0x2034]
+        external = replace(builtin, category="External HCI", parameter_template=b"\x13\x25\x00\x02")
+        self.application._remember_parameter_values(builtin, {"TX_Channel": 25})
+        self.application._remember_parameter_values(external, {"TX_Channel": 10})
+        self.assertEqual(self.application._values_for_definition(builtin)["TX_Channel"], 25)
+        self.assertEqual(self.application._values_for_definition(external)["TX_Channel"], 10)
 
     def test_vendor_variants_with_same_opcode_can_be_loaded_separately(
         self,

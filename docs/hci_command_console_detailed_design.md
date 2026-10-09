@@ -84,7 +84,7 @@ HciCommandConsoleApplication
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ 接続設定                                                     │
-│ Port [COM3 ▼] Baud [115200 ▼] ... Timeout [1▼] s [Vendor定義読込] │
+│ Port [COM3 ▼] Baud [115200 ▼] ... Timeout [1▼] s [外部定義読込] │
 ├───────────────────────┬──────────────────────────────────────┤
 │ コマンド選択          │ パラメーター設定                     │
 │ Category [LE Test ▼]  │ パラメーター名 [入力部品] 単位       │
@@ -109,7 +109,7 @@ HciCommandConsoleApplication
 | Port | `list_serial_ports()`の結果を表示 |
 | Baud | 既存`SUPPORTED_BAUD_RATES`を使用 |
 | Timeout | `1`、`2`、`3`秒から選択。初期値は1秒 |
-| Vendor定義読込 | 外部Vendor定義JSONをコマンド一覧へ追加 |
+| 外部定義読込 | 標準・ベンダー固有コマンドの外部定義JSONを一覧へ追加 |
 | 更新 | 未接続時のみ有効 |
 | 接続 | Port選択時かつ未接続時のみ有効 |
 | 切断 | 接続中のみ有効 |
@@ -201,13 +201,13 @@ Canvas内部フレームは表示幅へ追従させ、左右の列へ同じ幅�
 表示中の全パラメーター名をTk標準フォントで測定し、左右両列で共通のラベル列幅を
 使用する。これにより、各パラメーター入力欄の左端位置を列内で揃える。
 
-外部Vendor Commandのパラメーター定義にある`description`は入力欄の下へ表示する。Descriptionに
+外部コマンド定義にある`description`は入力欄の下へ表示する。Descriptionに
 `Frequency = 2402 + value * 2`のような式がある場合、`value`を現在の入力値として
 安全な算術式だけを評価し、`→ 2440`のように派生値を即時表示する。
-標準CommandのDescriptionは計算対象にしない。外部Vendor定義にDescriptionが
+組み込みCommandのDescriptionは計算対象にしない。外部定義にDescriptionが
 ない場合も従来どおり読み込める。
 
-外部Vendor定義の`response.kind`が`command_complete`の場合、
+外部定義の`response.kind`が`command_complete`の場合、
 `response.parameter_length`と`response.parameters`を任意で定義できる。
 Response ParameterのOffsetはCommand CompleteのReturn Parameters先頭を0とし、
 通常はStatusがOffset 0となる。送信トランザクションに保存した定義と応答内Opcodeを
@@ -396,11 +396,19 @@ Numericで`0x7E`または`0x7F`と同じ正値を入力することは許可し�
 送信後は通常の`HCI_Command_Complete`を選択中のタイムアウト時間だけ待つ。
 Supported Commandsのoctet 5 bit 7を対応状況へ反映する。
 
-### 7.11 外部Vendor Command
+### 7.11 外部コマンド定義
 
 Vendor Discoveryが出力したSchema Version 1のJSONを接続設定欄から読み込む。
-OGF `0x3F`以外のOpcode、組み込みOpcodeとの重複、Template長不一致、
-未対応型、範囲外Offset、Field重複、同一Command Name・Versionの重複を拒否する。
+OGFにかかわらず読み込み、ベンダー固有コマンドは`Vendor Specific`、標準コマンドは
+`External HCI`カテゴリへ追加する。Template長不一致、未対応型、範囲外Offset、
+Field重複、同一ファイル内のCommand Name・Versionの重複は拒否する。
+組み込みと同じOpcodeでも別定義として保持し、組み込み定義とクイックボタンは変更しない。
+パラメーター値の記憶はカテゴリごとに分離する。
+
+外部定義のエンコードはOGFではなくParameter Templateの有無で選択する。
+既存パーサーが解釈できない場合も、読込済みの外部Opcodeに限ってH4ヘッダーを検証し、
+Command／Command Complete／Command StatusをRAWとして受理する。
+応答のOpcodeとTransaction IDで送信時の定義を特定し、外部定義の応答パラメーターを適用する。
 
 同一OpcodeでもCommand Nameまたは任意の`version`が異なる定義は、別バリアント
 として同時に保持する。GUIはCategory、Command Name、Versionで定義を一意に選択し、

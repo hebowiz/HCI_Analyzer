@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
 from hci_analyzer.vendor.discovery import FieldCandidate, VendorCapture
 from hci_analyzer.vendor.console_definitions import SUPPORTED_FIELD_TYPES
 from hci_analyzer.vendor.live_capture import DiscoveryCapture
@@ -40,6 +41,8 @@ class UserParameter:
     status: str = "not_analyzed"
     candidates: list[dict[str, object]] = field(default_factory=list)
     confirmed_candidate: dict[str, object] | None = None
+    default: str = ""
+    choice_values: dict[str, int] = field(default_factory=dict)
 
     def validate(self) -> None:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.name):
@@ -56,6 +59,12 @@ class UserParameter:
             )
         if self.kind in ("enum", "boolean") and len(self.choices) < 2:
             raise ValueError("Enum and Boolean parameters require at least two choices")
+        if self.default.strip():
+            _parse_number(self.default)
+        if any(label not in self.choices for label in self.choice_values):
+            raise ValueError("Explicit enum values must refer to existing choices")
+        if len(set(self.choice_values.values())) != len(self.choice_values):
+            raise ValueError("Enum choice values must be unique")
 
     def set_candidates(self, candidates: Iterable[FieldCandidate]) -> None:
         self.candidates = [
@@ -218,9 +227,15 @@ def load_project(path: Path) -> tuple[VendorDiscoveryProject, list[DiscoveryCapt
         if not isinstance(raw_parameter, dict):
             raise ValueError("Project parameter must be an object")
         raw_choices = raw_parameter.get("choices", [])
+        raw_choice_values = raw_parameter.get("choice_values", {})
         raw_candidates = raw_parameter.get("candidates", [])
         if not isinstance(raw_choices, list):
             raise ValueError("Project parameter choices must be an array")
+        if not isinstance(raw_choice_values, dict) or any(
+            not isinstance(value, int) or isinstance(value, bool)
+            for value in raw_choice_values.values()
+        ):
+            raise ValueError("Project choice_values must map choice labels to integers")
         if not isinstance(raw_candidates, list):
             raise ValueError("Project parameter candidates must be an array")
         parameter = UserParameter(
@@ -230,6 +245,11 @@ def load_project(path: Path) -> tuple[VendorDiscoveryProject, list[DiscoveryCapt
             unit=str(raw_parameter.get("unit", "")),
             number_format=str(raw_parameter.get("number_format", "decimal")),
             description=str(raw_parameter.get("description", "")),
+            default=str(raw_parameter.get("default", "")),
+            choice_values={
+                str(label): int(value)
+                for label, value in raw_choice_values.items()
+            },
             choices=[
                 str(value)
                 for value in raw_choices
@@ -270,6 +290,8 @@ def build_console_definition(
         raise ValueError("Command name is required")
     if not evidence:
         raise ValueError("At least one capture is required")
+    if any(capture.opcode != project.opcode for capture in evidence):
+        raise ValueError("All captures must use the project opcode")
     lengths = {len(capture.parameters) for capture in evidence}
     if len(lengths) != 1:
         raise ValueError("Console export requires one fixed parameter length")
@@ -277,6 +299,7 @@ def build_console_definition(
     fields: list[dict[str, object]] = []
     occupied: dict[int, str] = {}
     for parameter in project.parameters:
+        parameter.validate()
         candidate = parameter.confirmed_candidate
         if candidate is None:
             continue
@@ -325,6 +348,12 @@ def build_console_definition(
             byte_order,
             signed=signed,
         )
+        if parameter.default.strip():
+            default = _parse_number(parameter.default)
+        try:
+            default.to_bytes(size, byte_order, signed=signed)
+        except OverflowError as exc:
+            raise ValueError(f"{parameter.name}: default is outside {data_type}") from exc
         field["default"] = _json_number(
             default,
             size,
@@ -335,7 +364,12 @@ def build_console_definition(
             byte_order = "big" if data_type.endswith("_be") else "little"
             for capture in evidence:
                 label = capture.annotations.get(parameter.name)
-                if label is not None and offset + size <= len(capture.parameters):
+                if (
+                    label is not None
+                    and label not in parameter.choice_values
+                    and (not parameter.choices or label in parameter.choices)
+                    and offset + size <= len(capture.parameters)
+                ):
                     value = int.from_bytes(
                         capture.parameters[offset : offset + size],
                         byte_order,
@@ -347,8 +381,17 @@ def build_console_definition(
                             parameter.number_format,
                         ))
                     ] = label
+            # Explicit choices take precedence over capture-derived labels.
+            for label, value in parameter.choice_values.items():
+                try:
+                    value.to_bytes(size, byte_order)
+                except OverflowError as exc:
+                    raise ValueError(f"{parameter.name}: enum value is out of range") from exc
+                choices[str(_json_number(value, size, parameter.number_format))] = label
             if choices:
                 if str(field["default"]) not in choices:
+                    if parameter.default.strip():
+                        raise ValueError(f"{parameter.name}: default is not an enum choice")
                     field["default"] = next(iter(choices))
                     if parameter.number_format == "decimal":
                         field["default"] = int(field["default"])
@@ -363,13 +406,16 @@ def build_console_definition(
         "commands": [
             {
                 "opcode": f"0x{project.opcode:04X}",
-                "ogf": 0x3F,
+                "ogf": project.opcode >> 10,
                 "ocf": project.opcode & 0x03FF,
                 "name": project.command_name.strip(),
                 "parameter_length": parameter_length,
                 "parameter_template_hex": evidence[0].parameters.hex(" ").upper(),
                 "parameters": fields,
-                "response": {"kind": "unknown"},
+                "response": {"kind": (
+                    COMMAND_DEFINITIONS_BY_OPCODE[project.opcode].response_kind.value
+                    if project.opcode in COMMAND_DEFINITIONS_BY_OPCODE else "unknown"
+                )},
             }
         ],
     }
@@ -485,7 +531,7 @@ def _capture_from_dict(
     capture_id = str(item.get("capture_id") or f"project:{index}")
     timestamp = str(item.get("timestamp", ""))
     source = str(item.get("source", ""))
-    if protocol == "HCI Vendor":
+    if protocol in ("HCI Vendor", "HCI Command"):
         opcode = int(str(item.get("opcode")), 0)
         parameters = bytes.fromhex(str(item.get("parameters_hex", "")))
         annotations = item.get("annotations", {})
@@ -551,3 +597,29 @@ def _capture_from_dict(
 
 def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _parse_number(text: str) -> int:
+    text = text.strip()
+    signless = text.lstrip("+-")
+    return int(text, 16 if signless.lower().startswith("0x") else 10)
+
+
+def parse_parameter_choices(text: str) -> tuple[list[str], dict[str, int]]:
+    """Accept legacy labels and optional explicit value=label entries."""
+    labels: list[str] = []
+    values: dict[str, int] = {}
+    for item in text.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" in item:
+            value_text, label = item.split("=", 1)
+            label = label.strip()
+            values[label] = _parse_number(value_text)
+        else:
+            label = item
+        if not label or label in labels:
+            raise ValueError("Enum choice labels must be non-empty and unique")
+        labels.append(label)
+    return labels, values

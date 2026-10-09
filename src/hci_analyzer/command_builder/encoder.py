@@ -51,7 +51,7 @@ class HciCommandEncoder:
             + parameters
         )
         parsed = self._parser.parse_bytes(frame)
-        if not parsed.success:
+        if not parsed.success and not definition.is_external:
             message = parsed.error.message if parsed.error else "Parser rejected frame"
             raise ValueError(f"Encoded command self-check failed: {message}")
         return EncodedCommand(definition, dict(values), parameters, frame)
@@ -62,7 +62,7 @@ class HciCommandEncoder:
         values: Mapping[str, Any],
     ) -> bytes:
         opcode = definition.opcode
-        if definition.vendor_specific:
+        if definition.is_external:
             from hci_analyzer.vendor.console_definitions import (
                 encode_vendor_parameters,
             )

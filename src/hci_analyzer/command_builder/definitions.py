@@ -78,6 +78,11 @@ class ConsoleCommandDefinition:
     response_parameters: tuple[ParameterDefinition, ...] = ()
 
     @property
+    def is_external(self) -> bool:
+        """Distinguish template-based definitions from protocol OGF."""
+        return self.parameter_template is not None
+
+    @property
     def display_name(self) -> str:
         """Return a version-qualified name for selection controls."""
         if self.version is None:

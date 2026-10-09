@@ -75,7 +75,9 @@ def _format_command(decoded: dict[str, Any]) -> list[str]:
     if not isinstance(params, dict):
         return lines
 
-    if name.startswith("HCI_LE_Transmitter_Test"):
+    if decoded.get("external_definition"):
+        lines.extend(_format_generic_parameters(params))
+    elif name.startswith("HCI_LE_Transmitter_Test"):
         lines.extend(_format_transmitter_parameters(params))
     elif name.startswith("HCI_LE_Receiver_Test"):
         lines.extend(_format_receiver_parameters(params, name))
@@ -231,7 +233,7 @@ def _format_command_response(
         lines.append(_field("Received Packets", decoded.get("num_packets", "-")))
     if decoded.get("response_type") == "Supported_Commands":
         lines.extend(_format_supported_commands(decoded))
-    if decoded.get("vendor_specific"):
+    if decoded.get("vendor_specific") or decoded.get("external_definition"):
         lines.append(
             _field(
                 "Return Parameters",

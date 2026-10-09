@@ -1,4 +1,4 @@
-"""Load and compare vendor-specific HCI commands captured in Analyzer JSONL."""
+"""Load and compare HCI commands captured in Analyzer JSONL."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ VENDOR_OGF = 0x3F
 
 @dataclass(slots=True)
 class VendorCapture:
-    """One vendor command and any responses associated with it."""
+    """One HCI command and associated responses; name kept for compatibility."""
 
     capture_id: str
     source_path: Path
@@ -60,7 +60,7 @@ class VendorAnalysis:
 def load_vendor_captures(
     paths: Iterable[Path],
 ) -> tuple[list[VendorCapture], list[str]]:
-    """Load vendor commands from one or more Analyzer JSONL files."""
+    """Load standard and vendor commands from Analyzer JSONL files."""
     captures: list[VendorCapture] = []
     errors: list[str] = []
     pending: dict[int, list[VendorCapture]] = {}
@@ -99,13 +99,14 @@ def load_vendor_captures(
                     continue
                 captures.append(capture)
                 pending.setdefault(capture.opcode, []).append(capture)
-                latest_capture = capture
+                if _is_vendor_opcode(capture.opcode):
+                    latest_capture = capture
                 continue
             if raw[0] != 0x04:
                 continue
 
             response_opcode = _response_opcode(raw)
-            if response_opcode is not None and _is_vendor_opcode(response_opcode):
+            if response_opcode is not None:
                 candidates = pending.get(response_opcode, [])
                 if candidates:
                     capture = candidates.pop(0)
@@ -141,7 +142,7 @@ def analyze_captures(captures: Iterable[VendorCapture]) -> VendorAnalysis:
     """Infer byte-layout candidates from user-labelled captures."""
     selected = list(captures)
     if not selected:
-        raise ValueError("At least one vendor command capture is required")
+        raise ValueError("At least one HCI command capture is required")
     opcode = selected[0].opcode
     if any(item.opcode != opcode for item in selected):
         raise ValueError("All captures must use the same opcode")
@@ -199,7 +200,7 @@ def build_definition_draft(
     evidence = [
         capture for capture in captures if capture.opcode == analysis.opcode
     ]
-    name = command_name.strip() or f"Vendor_Command_0x{analysis.opcode:04X}"
+    name = command_name.strip() or default_command_name(analysis.opcode)
     fields: list[dict[str, Any]] = []
     for field_name, candidates in analysis.candidates.items():
         item: dict[str, Any] = {
@@ -248,7 +249,7 @@ def build_definition_draft(
         "commands": [
             {
                 "opcode": f"0x{analysis.opcode:04X}",
-                "ogf": VENDOR_OGF,
+                "ogf": analysis.opcode >> 10,
                 "ocf": analysis.opcode & 0x03FF,
                 "name": name,
                 "parameter_length": parameter_length,
@@ -272,7 +273,7 @@ def format_analysis_report(
     selected = list(captures)
     lines = [
         f"Opcode: 0x{analysis.opcode:04X}  "
-        f"OGF: 0x{VENDOR_OGF:02X}  OCF: 0x{analysis.opcode & 0x03FF:03X}",
+        f"OGF: 0x{analysis.opcode >> 10:02X}  OCF: 0x{analysis.opcode & 0x03FF:03X}",
         f"Captures: {analysis.capture_count}",
         "Parameter lengths: "
         + ", ".join(str(value) for value in analysis.parameter_lengths),
@@ -324,8 +325,6 @@ def _vendor_command_capture(
     if len(raw) < 4:
         return None
     opcode = int.from_bytes(raw[1:3], "little")
-    if not _is_vendor_opcode(opcode):
-        return None
     parameter_length = raw[3]
     if len(raw) != 4 + parameter_length:
         return None
@@ -355,6 +354,8 @@ def _record_raw_bytes(record: dict[str, Any]) -> bytes | None:
 
 
 def _response_opcode(raw: bytes) -> int | None:
+    if len(raw) < 3 or raw[0] != 0x04 or len(raw) != 3 + raw[2]:
+        return None
     if len(raw) >= 6 and raw[1] == 0x0E:
         return int.from_bytes(raw[4:6], "little")
     if len(raw) >= 7 and raw[1] == 0x0F:
@@ -364,6 +365,14 @@ def _response_opcode(raw: bytes) -> int | None:
 
 def _is_vendor_opcode(opcode: int) -> bool:
     return ((opcode >> 10) & 0x3F) == VENDOR_OGF
+
+
+def default_command_name(opcode: int) -> str:
+    """Use a known standard name, otherwise an explicitly generic name."""
+    from hci_analyzer.parser.registry import command_display_name
+
+    prefix = "Vendor_Command" if _is_vendor_opcode(opcode) else "HCI_Command"
+    return command_display_name(opcode) or f"{prefix}_0x{opcode:04X}"
 
 
 def _changed_offsets(captures: list[VendorCapture]) -> tuple[int, ...]:

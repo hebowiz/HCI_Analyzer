@@ -57,13 +57,26 @@ class LiveCaptureStoreTests(unittest.TestCase):
         self.assertFalse(entry.analyzable)
         self.assertEqual(self.store.vendor_opcodes(), ())
 
-    def test_standard_hci_command_is_not_added(self) -> None:
+    def test_standard_hci_command_is_analyzable(self) -> None:
         entry = self.store.add_record(
             self._record("01 1F 20 00", second=1)
         )
 
-        self.assertIsNone(entry)
-        self.assertEqual(self.store.entries, ())
+        self.assertTrue(entry.analyzable)
+        self.assertEqual(entry.protocol, "HCI Command")
+        self.assertEqual(self.store.vendor_opcodes(), (0x201F,))
+
+    def test_unknown_standard_command_and_response_are_retained(self) -> None:
+        command = self.store.add_record(self._record("01 01 20 02 AA BB", second=1))
+        event = self.store.add_record(self._record("04 0E 04 01 01 20 00", second=2))
+        self.assertEqual(command.parameters, bytes.fromhex("AA BB"))
+        self.assertEqual(event.related_opcode, 0x2001)
+        self.assertEqual(command.vendor_capture.responses, [event.raw_data])
+
+    def test_invalid_h4_command_length_is_not_captured(self) -> None:
+        self.assertIsNone(self.store.add_record(
+            self._record("01 01 20 02 AA", second=1)
+        ))
 
     def test_remove_and_restore_preserve_original_order(self) -> None:
         for second, frame in enumerate(

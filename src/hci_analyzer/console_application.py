@@ -63,10 +63,10 @@ class HciCommandConsoleApplication:
         self._window.set_close_handler(self._close)
         self._selected_definition: ConsoleCommandDefinition | None = None
         self._parameter_value_cache: dict[
-            tuple[int, str, str | None],
+            tuple[str, int, str, str | None],
             dict[str, Any],
         ] = {}
-        self._shared_parameter_values: dict[str, dict[str, Any]] = {}
+        self._shared_parameter_values: dict[tuple[str, str], dict[str, Any]] = {}
         self._transaction_definitions: dict[
             int,
             ConsoleCommandDefinition,
@@ -239,7 +239,9 @@ class HciCommandConsoleApplication:
                 )
             )
         )
-        shared = self._shared_parameter_values.get(definition.name, {})
+        shared = self._shared_parameter_values.get(
+            (definition.category, definition.name), {}
+        )
         parameter_names = {parameter.name for parameter in definition.parameters}
         values.update(
             self._copy_parameter_values(
@@ -260,7 +262,9 @@ class HciCommandConsoleApplication:
         copied = self._copy_parameter_values(values)
         self._parameter_value_cache[_definition_key(definition)] = copied
         parameter_names = {parameter.name for parameter in definition.parameters}
-        shared = self._shared_parameter_values.setdefault(definition.name, {})
+        shared = self._shared_parameter_values.setdefault(
+            (definition.category, definition.name), {}
+        )
         shared.update(
             self._copy_parameter_values(
                 {
@@ -335,12 +339,13 @@ class HciCommandConsoleApplication:
             matches = [
                 item
                 for item in self._selectable_definitions
-                if item.vendor_specific and item.opcode == raw_opcode
+                if item.is_external and item.opcode == raw_opcode
             ]
             if len(matches) == 1:
                 definition = matches[0]
-        if definition is None or not definition.vendor_specific:
+        if definition is None or not definition.is_external:
             return
+        decoded["external_definition"] = True
         decoded["command_name"] = definition.display_name
         if parsed.packet_type == "HCI_Command":
             decoded["display_name"] = definition.display_name
@@ -352,10 +357,10 @@ class HciCommandConsoleApplication:
         elif (
             parsed.packet_type == "HCI_Event"
             and decoded.get("event_name") == "HCI_Command_Complete"
-            and definition.response_parameter_length is not None
         ):
-            raw_return_parameters = decoded.get("return_parameters")
-            if isinstance(raw_return_parameters, list):
+            raw_return_parameters = list(parsed.raw_data[6:])
+            decoded["return_parameters_hex"] = parsed.raw_data[6:].hex(" ").upper()
+            if definition.response_parameter_length is not None:
                 decoded["vendor_response_parameters"] = (
                     decode_vendor_command_complete(
                         definition,
@@ -409,11 +414,6 @@ class HciCommandConsoleApplication:
             for path in paths:
                 loaded = load_vendor_console_definitions(path)
                 for definition in loaded.definitions:
-                    if definition.opcode in COMMAND_DEFINITIONS_BY_OPCODE:
-                        raise ValueError(
-                            f"Vendor definition cannot replace built-in opcode "
-                            f"0x{definition.opcode:04X}"
-                        )
                     selection_key = _selection_key(definition)
                     if selection_key in loaded_selection_keys:
                         raise ValueError(
@@ -447,14 +447,14 @@ class HciCommandConsoleApplication:
                 selection_keys.add(key)
         except ValueError as exc:
             self._append_application_error(
-                f"Vendor definition load failed: {format_exception_for_log(exc)}"
+                f"External definition load failed: {format_exception_for_log(exc)}"
             )
             return
         if review_names and not self._window.confirm_review_required_definitions(
             review_names
         ):
             self._append_application_message(
-                "Vendor definition loading was cancelled"
+                "External definition loading was cancelled"
             )
             return
 
@@ -464,13 +464,19 @@ class HciCommandConsoleApplication:
             if _selection_key(item) not in loaded_selection_keys
         ]
         self._selectable_definitions.extend(loaded_definitions)
+        self._parser.set_external_opcodes({
+            item.opcode for item in self._selectable_definitions if item.is_external
+        })
         for definition in loaded_definitions:
-            self._definitions_by_opcode[definition.opcode] = definition
+            if definition.opcode not in COMMAND_DEFINITIONS_BY_OPCODE:
+                self._definitions_by_opcode[definition.opcode] = definition
             self._parameter_value_cache.pop(_definition_key(definition), None)
-            self._shared_parameter_values.pop(definition.name, None)
+            self._shared_parameter_values.pop(
+                (definition.category, definition.name), None
+            )
         self._window.set_command_definitions(tuple(self._selectable_definitions))
         self._append_application_message(
-            f"Loaded {len(loaded_definitions)} vendor command definition(s)"
+            f"Loaded {len(loaded_definitions)} external command definition(s)"
         )
 
     def _append_application_error(self, message: str) -> None:
@@ -543,5 +549,5 @@ def _selection_key(
 
 def _definition_key(
     definition: ConsoleCommandDefinition,
-) -> tuple[int, str, str | None]:
-    return definition.opcode, definition.name, definition.version
+) -> tuple[str, int, str, str | None]:
+    return definition.category, definition.opcode, definition.name, definition.version

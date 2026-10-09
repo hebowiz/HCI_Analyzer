@@ -40,6 +40,7 @@ class CommandValidator:
         for parameter in definition.parameters:
             if (
                 definition.opcode == 0x207B
+                and not definition.is_external
                 and parameter.name == "TX_Power_Level"
                 and normalized.get("TX_Power_Mode") in (1, 2)
             ):
@@ -50,7 +51,7 @@ class CommandValidator:
             else:
                 self._validate_scalar(parameter, value, normalized, issues)
 
-        if definition.opcode == 0x207B:
+        if definition.opcode == 0x207B and not definition.is_external:
             mode = normalized.get("TX_Power_Mode")
             if mode in (1, 2):
                 normalized["TX_Power_Level"] = 0x7E if mode == 1 else 0x7F
@@ -194,7 +195,7 @@ class CommandValidator:
     def _parameter_length(
         definition: ConsoleCommandDefinition, values: Mapping[str, Any]
     ) -> int:
-        if definition.vendor_specific:
+        if definition.is_external:
             return len(definition.parameter_template or b"")
         if definition.opcode == 0x201D:
             return 1

@@ -1,4 +1,4 @@
-"""Load reviewed vendor command definitions for HCI Command Console."""
+"""Load reviewed external command definitions for HCI Command Console."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def load_vendor_console_definitions(path: Path) -> LoadedVendorDefinitions:
     if not isinstance(payload, dict):
         raise ValueError("Definition root must be a JSON object")
     if payload.get("schema_version") != 1:
-        raise ValueError("Only vendor definition schema_version 1 is supported")
+        raise ValueError("Only external definition schema_version 1 is supported")
     commands = payload.get("commands")
     if not isinstance(commands, list) or not commands:
         raise ValueError("Definition must contain a non-empty commands array")
@@ -96,8 +96,8 @@ def encode_vendor_parameters(
     values: Mapping[str, Any],
 ) -> bytes:
     """Encode fields over a captured parameter template."""
-    if not definition.vendor_specific or definition.parameter_template is None:
-        raise ValueError("Vendor definition does not contain a parameter template")
+    if definition.parameter_template is None:
+        raise ValueError("External definition does not contain a parameter template")
     encoded = bytearray(definition.parameter_template)
     for parameter in definition.parameters:
         offset = parameter.byte_offset
@@ -194,8 +194,6 @@ def _load_command(
     index: int,
 ) -> ConsoleCommandDefinition:
     opcode = _parse_opcode(command.get("opcode"), index)
-    if ((opcode >> 10) & 0x3F) != 0x3F:
-        raise ValueError(f"commands[{index}] opcode is not Vendor Specific")
     name = command.get("name")
     if not isinstance(name, str) or not name.strip():
         raise ValueError(f"commands[{index}] name is required")
@@ -279,10 +277,10 @@ def _load_command(
         opcode=opcode,
         name=name.strip(),
         version=version,
-        category=VENDOR_SPECIFIC,
+        category=VENDOR_SPECIFIC if opcode >> 10 == 0x3F else "External HCI",
         parameters=tuple(parameters),
         response_kind=response_kind,
-        vendor_specific=True,
+        vendor_specific=opcode >> 10 == 0x3F,
         parameter_template=template,
         review_required=review_required,
         external_source=str(path),

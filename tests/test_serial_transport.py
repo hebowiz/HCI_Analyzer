@@ -8,6 +8,7 @@ from unittest.mock import patch
 import serial
 
 from hci_analyzer.models import SerialPortConfig
+from hci_analyzer.parser.facade import HciParser
 from hci_analyzer.serial.transport import HciSerialTransport, TransportEventKind
 
 
@@ -48,6 +49,24 @@ class _FakeSerial:
 
 
 class HciSerialTransportTests(unittest.TestCase):
+    def test_loaded_unknown_standard_response_is_linked_to_transaction(self):
+        events = []
+        parser = HciParser()
+        parser.set_external_opcodes({0x2001})
+        fake = _FakeSerial(response=bytes.fromhex("04 0E 04 01 01 20 00"))
+        with patch("hci_analyzer.serial.transport.serial.Serial", return_value=fake):
+            transport = HciSerialTransport(events.append, parser)
+            transport.connect(SerialPortConfig("COM1", 115200, "Test"))
+            try:
+                transaction_id = transport.send(bytes.fromhex("01 01 20 01 AA"), expected_opcode=0x2001)
+                self._wait_for(lambda: any(e.kind == TransportEventKind.RECEIVED for e in events))
+                received = next(e for e in events if e.kind == TransportEventKind.RECEIVED)
+                self.assertEqual(received.transaction_id, transaction_id)
+                self.assertTrue(received.parsed.success)
+                self.assertIsNone(transport._get_pending())
+            finally:
+                transport.disconnect()
+
     def test_connect_failure_is_reported_only_by_application_layer(self) -> None:
         events = []
         error = serial.SerialException(

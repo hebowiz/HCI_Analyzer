@@ -273,7 +273,7 @@ class CommandConsoleWindow:
         """Ask the user to select external vendor definition JSON files."""
         selected = filedialog.askopenfilenames(
             parent=self._root,
-            title="Vendor Command定義を選択",
+            title="外部HCIコマンド定義を選択",
             initialdir="vendor_definitions",
             filetypes=(("JSON", "*.json"), ("All files", "*.*")),
         )
@@ -283,7 +283,7 @@ class CommandConsoleWindow:
         """Confirm loading inferred definitions that still require review."""
         command_names = "\n".join(f"- {name}" for name in names)
         return messagebox.askyesno(
-            "未確定Vendor定義の読込",
+            "未確定コマンド定義の読込",
             "選択した定義はreview_required=trueです。\n"
             "推定結果が誤っているとControllerへ意図しないCommandを送信する"
             "可能性があります。\n\n"
@@ -505,7 +505,7 @@ class CommandConsoleWindow:
         )
         self._vendor_load_button = ttk.Button(
             connection,
-            text="Vendor定義読込",
+            text="外部定義読込",
             command=self._on_load_vendor_definitions,
         )
         self._vendor_load_button.grid(
@@ -703,7 +703,7 @@ class CommandConsoleWindow:
             widget: tk.Widget = frame
         elif parameter.kind == ParameterKind.ENUM:
             display_to_value = {
-                f"{self._short_enum_label(parameter.name, value, label)} "
+                f"{label if self._current_definition.is_external else self._short_enum_label(parameter.name, value, label)} "
                 f"(0x{value:02X})": value
                 for value, label in parameter.choices.items()
             }
@@ -757,7 +757,7 @@ class CommandConsoleWindow:
             if (
                 parameter.description
                 and self._current_definition is not None
-                and self._current_definition.vendor_specific
+                and self._current_definition.is_external
             ):
                 detail = ttk.Label(
                     cell,
@@ -881,7 +881,7 @@ class CommandConsoleWindow:
             if (
                 parameter.description
                 and self._current_definition is not None
-                and self._current_definition.vendor_specific
+                and self._current_definition.is_external
             ):
                 details.append(
                     _format_parameter_description(

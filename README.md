@@ -9,7 +9,7 @@ UART HCI（H4）で送受信されるBluetooth LE RF PHY TestのCommand/Eventを
 |---|---|
 | HCI Analyzer | 最大2つのシリアルポートを受信専用で監視し、HCI通信を解析・保存する |
 | HCI Command Console | GUIからHCI Commandを送信してControllerを制御する |
-| HCI Vendor Command Discovery | 最大2ポートからベンダー固有Commandをリアルタイム取得し、パラメーター配置候補を調べる |
+| HCI Vendor Command Discovery | 最大2ポートから標準・ベンダー固有Commandを取得し、パラメーター定義を編集・JSON出力する |
 
 ## セットアップ
 
@@ -93,20 +93,22 @@ GUIログへ解析表示します。
 - コマンド・イベント名とパラメーターの読みやすいSUMMARY表示
 - Supported Commands v1/v2によるController対応状況の判定
 - 1、2、3秒から選択できる応答タイムアウト（初期値1秒）
-- Vendor Discoveryが出力した外部Vendor定義JSONの読込・フォーム生成・送信
+- Vendor Discoveryが出力した外部コマンド定義JSONの読込・フォーム生成・送信
 
 Command Consoleのログはアプリ実行中の画面表示のみで、ファイルへ保存しません。
 応答待ち中は追加のコマンド送信とタイムアウト変更を無効化します。
 
-Vendor Commandを使用する場合は、接続設定欄の「Vendor定義読込」から定義案JSONを
+外部コマンド定義を使用する場合は、接続設定欄の「外部定義読込」から定義JSONを
 選択します。`review_required: true`の定義は警告を表示し、利用者が確認した場合だけ
-読み込みます。読み込んだCommandは`Vendor Specific`カテゴリへ追加されます。
+読み込みます。ベンダー固有コマンドは`Vendor Specific`、標準コマンドは
+`External HCI`カテゴリへ追加されます。組み込みコマンドと同じOpcodeでも読み込めますが、
+組み込み定義やReset／Test Endのクイックボタンは変更しません。
 同一OpcodeでもCommand NameまたはVersionが異なる定義は、別バリアントとして
 同時に登録・選択できます。送受信ログはTransaction IDを使って実際に送信した
 バリアント名へ紐付けます。
 定義はアプリ終了後まで記憶しないため、次回起動時は再度読み込んでください。
 
-外部Vendor定義には、Command CompleteのReturn Parametersを記述できます。
+外部定義には、Command CompleteのReturn Parametersを記述できます。
 
 ```json
 "response": {
@@ -158,7 +160,7 @@ python command_console.py
 
 ## HCI Vendor Command Discovery
 
-最大2つのシリアルポートを監視し、ベンダー固有HCI Commandをリアルタイムで
+最大2つのシリアルポートを監視し、標準・ベンダー固有HCI Commandをリアルタイムで
 検出して、既知の設定値がParameter内に格納されている位置と型を推定する
 補助ツールです。従来のAnalyzer JSONLも追加キャプチャーとして読み込めます。
 
@@ -177,9 +179,9 @@ python vendor_discovery.py
 ### 基本操作
 
 1. Analyzerと同じ2ポート・共通ボーレート設定で取得を開始する
-2. Vendor Command、HCI Event、RACEを時系列一覧で確認する
+2. 標準・ベンダー固有HCI Command、HCI Event、RACEを時系列一覧で確認する
 3. 不要なキャプチャーを選択して除外する（Undo可能）
-4. 解析するVendor Opcodeを選択する
+4. 解析するOpcodeを選択する
    - 「選択Opcodeのみ表示」で、そのCommandとOpcodeを含む応答だけに絞り込める
 5. PHY、Channelなどのパラメーターをユーザー定義する
    - JSON数値表記はパラメーターごとに10進／16進を選択できる
@@ -189,6 +191,22 @@ python vendor_discovery.py
    - 自動候補が正しくない場合は「配置を手動設定」でOffsetと型を指定する
 8. 解析プロジェクトを保存し、別のパラメーター解析を継続する
 9. 完成後にCommand Console用定義を出力する
+
+標準HCIコマンドは、Opcodeを初めて選択した時点で編集用の初期定義を作成します。
+既存のReceiver Test、Transmitter Test、Test End、Reset、Supported Commandsは、
+組み込み定義の名前・型・Enum選択肢を使い、初期値には最初のキャプチャー値を設定します。
+未登録Opcodeや既知のレイアウトに合わないコマンドは、1バイト単位の`Parameter_0`、
+`Parameter_1`などを作成します。これらの名前はパラメーターの意味を示しません。
+
+自動作成された項目は、パラメーターの「編集」で名前・初期値・説明・数値表記を変更できます。
+Enumの選択肢は`0x01=LE 1M, 0x02=LE 2M`のように値も指定できます。
+初期値を空欄にすると、JSON出力時に先頭キャプチャーの値を使います。
+位置と型は「配置を手動設定」で変更できます。変更内容はプロジェクトに保存され、
+追加キャプチャーやOpcodeの再選択では上書きされません。
+
+標準コマンドの自動作成済み項目は、既知値の割当や推定をせずにConsole用定義へ出力できます。
+v3/v4の配列はキャプチャー時の長さで個別項目へ展開します。出力定義は固定長なので、
+同じOpcodeで長さの違うキャプチャーがある場合は、不要な長さの行を除外してから出力してください。
 
 キャプチャーは重複をまとめず、検出時刻順に1件ずつ表示するのが標準です。
 `Group duplicate captures`を有効にした場合だけ、同一Protocol、識別子、
@@ -211,7 +229,7 @@ little-endian／big-endian、および1～4 byte Enumです。Enum値は連続�
 Parameter Lengthが`0`のCommandは、ユーザー定義パラメーターを追加しなくても
 Console用完成定義として出力できます。
 
-外部Vendor Commandのパラメーター説明欄では、現在の入力値を`value`として
+外部コマンド定義のパラメーター説明欄では、現在の入力値を`value`として
 計算式に使用できます。
 たとえば`Frequency = 2402 + value * 2`と定義すると、Command Consoleでは
 入力値`19`に対して`Frequency = 2402 + value * 2 → 2440`と即時表示します。
@@ -221,7 +239,7 @@ Console用完成定義として出力できます。
 16進表記を選択したパラメーターは、完成定義の`default`とEnumの`choices`キーを
 `"0x0123"`形式の文字列で出力します。Command ConsoleはJSON数値、10進文字列、
 16進文字列のいずれも内部整数へ変換して読み込みます。送信後のConsoleログでは、
-16進指定されたVendorパラメーターを型サイズに合わせた16進数で表示します。
+16進指定された外部定義のパラメーターを型サイズに合わせた16進数で表示します。
 数値入力欄の初期値、リセット値、コマンド切替後の復元値にも同じ16進表記を
 適用します。
 

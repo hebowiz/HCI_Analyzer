@@ -20,6 +20,29 @@ from hci_analyzer.vendor.project import (
 
 
 class VendorDiscoveryWindowTests(unittest.TestCase):
+    def test_standard_project_is_seeded_once_and_edits_survive_opcode_switch(self):
+        from tests.vendor.test_standard_defaults import capture_entry
+        from hci_analyzer.vendor.live_capture import LiveCaptureStore
+
+        window = object.__new__(VendorDiscoveryWindow)
+        window._store = LiveCaptureStore()
+        window._store.replace_entries([capture_entry(bytes.fromhex("01 34 20 04 13 25 00 02"))])
+        window._projects = {}
+        window._active_opcode = None
+        window._command_name_variable = Mock()
+        window._command_name_variable.get.return_value = "My_Transmitter"
+        window._refresh_capture_tree = Mock()
+        window._refresh_parameter_tree = Mock()
+        window._set_report = Mock()
+        window._select_opcode(0x2034)
+        project = window._current_project()
+        self.assertEqual(project.parameter("PHY").default, "2")
+        project.parameter("PHY").default = "4"
+        window._select_opcode(0x2034)
+        self.assertIs(window._current_project(), project)
+        self.assertEqual(project.parameter("PHY").default, "4")
+        self.assertEqual(project.command_name, "My_Transmitter")
+
     def test_opcode_filter_keeps_command_and_related_event_only(self) -> None:
         vendor = VendorCapture(
             capture_id="vendor:1",

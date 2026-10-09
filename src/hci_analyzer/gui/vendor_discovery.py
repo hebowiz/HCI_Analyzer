@@ -18,6 +18,7 @@ from hci_analyzer.vendor.discovery import (
     VendorAnalysis,
     analyze_captures,
     build_definition_draft,
+    default_command_name,
     format_analysis_report,
     load_vendor_captures,
 )
@@ -33,8 +34,10 @@ from hci_analyzer.vendor.project import (
     VendorDiscoveryProject,
     build_console_definition,
     load_project,
+    parse_parameter_choices,
     save_project,
 )
+from hci_analyzer.vendor.standard_defaults import create_discovery_project
 from hci_analyzer.vendor_settings import (
     VENDOR_DISCOVERY_DEFAULT_WINDOW_SIZE,
     VENDOR_DISCOVERY_MINIMUM_WINDOW_SIZE,
@@ -94,7 +97,7 @@ class VendorDiscoveryWindow:
         self._on_stop = on_stop
         self._on_refresh = on_refresh
         self._root = tk.Tk()
-        self._root.title("HCI ベンダーコマンド解析")
+        self._root.title("HCI コマンド解析（標準・ベンダー固有）")
         self._root.geometry(
             f"{VENDOR_DISCOVERY_DEFAULT_WINDOW_SIZE[0]}x"
             f"{VENDOR_DISCOVERY_DEFAULT_WINDOW_SIZE[1]}"
@@ -297,7 +300,7 @@ class VendorDiscoveryWindow:
             frame,
             textvariable=self._opcode_variable,
             state="readonly",
-            width=34,
+            width=42,
         )
         self._opcode_combo.grid(row=0, column=4, padx=(0, 12), pady=8)
         self._opcode_combo.bind(
@@ -566,7 +569,7 @@ class VendorDiscoveryWindow:
     def _open_project(self) -> None:
         path_text = filedialog.askopenfilename(
             parent=self._root,
-            title="ベンダー解析プロジェクトを開く",
+            title="HCI解析プロジェクトを開く",
             initialdir="vendor_projects",
             filetypes=(("解析プロジェクト", "*.json"),),
         )
@@ -591,7 +594,7 @@ class VendorDiscoveryWindow:
         if project is None:
             messagebox.showinfo(
                 "プロジェクト保存",
-                "先にVendor Opcodeを選択してください。",
+                "先にOpcodeを選択してください。",
                 parent=self._root,
             )
             return
@@ -604,9 +607,9 @@ class VendorDiscoveryWindow:
             return
         path_text = filedialog.asksaveasfilename(
             parent=self._root,
-            title="ベンダー解析プロジェクトを保存",
+            title="HCI解析プロジェクトを保存",
             initialdir=str(directory.resolve()),
-            initialfile=f"vendor_0x{project.opcode:04X}_project.json",
+            initialfile=f"{_file_prefix(project.opcode)}_project.json",
             defaultextension=".json",
             filetypes=(("解析プロジェクト", "*.json"),),
         )
@@ -631,7 +634,8 @@ class VendorDiscoveryWindow:
         for opcode in self._store.vendor_opcodes():
             count = len(self._store.vendor_captures(opcode))
             display = (
-                f"0x{opcode:04X} / OCF 0x{opcode & 0x03FF:03X} "
+                f"0x{opcode:04X} / OGF 0x{opcode >> 10:02X} / "
+                f"OCF 0x{opcode & 0x03FF:03X} "
                 f"({count}件)"
             )
             values.append(display)
@@ -753,6 +757,8 @@ class VendorDiscoveryWindow:
             source = (
                 "（手動）"
                 if candidate is not None and candidate.get("source") == "manual"
+                else "（初期定義）"
+                if candidate is not None and candidate.get("source") == "standard_default"
                 else ""
             )
             layout = (
@@ -793,19 +799,21 @@ class VendorDiscoveryWindow:
         if opcode is None:
             return
         self._active_opcode = opcode
-        project = self._projects.setdefault(
-            opcode,
-            VendorDiscoveryProject(
-                opcode=opcode,
-                command_name=f"Vendor_Command_0x{opcode:04X}",
-            ),
-        )
+        if opcode not in self._projects:
+            captures = self._store.vendor_captures(opcode)
+            self._projects[opcode] = (
+                create_discovery_project(captures[0]) if captures
+                else VendorDiscoveryProject(opcode, default_command_name(opcode))
+            )
+        project = self._projects[opcode]
         self._command_name_variable.set(project.command_name)
         self._current_analysis = None
         self._refresh_capture_tree()
         self._refresh_parameter_tree()
         self._set_report(
-            "Define a parameter, assign known values to selected captures, "
+            "Standard HCI defaults are editable in the parameter dialog. "
+            "Array layouts use the captured length.\n"
+            "To infer a field, assign known values to selected captures, "
             "then analyze the field."
         )
 
@@ -873,7 +881,7 @@ class VendorDiscoveryWindow:
         if not selected:
             messagebox.showinfo(
                 "既知値の設定",
-                "解析対象OpcodeのVendor HCIキャプチャーを1件以上選択して"
+                "解析対象OpcodeのHCI Commandキャプチャーを1件以上選択して"
                 "ください。RACEは表示のみで解析対象外です。",
                 parent=self._root,
             )
@@ -898,7 +906,7 @@ class VendorDiscoveryWindow:
         if project is None:
             messagebox.showinfo(
                 "パラメーター追加",
-                "先にVendor Opcodeを選択してください。",
+                "先にOpcodeを選択してください。",
                 parent=self._root,
             )
             return
@@ -1060,6 +1068,20 @@ class VendorDiscoveryWindow:
         project = self._current_project()
         if project is None or project.opcode is None:
             return
+        if project.opcode >> 10 != 0x3F:
+            self._sync_project_name(project)
+            try:
+                draft = build_console_definition(
+                    project, self._store.vendor_captures(project.opcode)
+                )
+            except ValueError as exc:
+                self.show_error("定義案出力エラー", exc)
+                return
+            draft["review_required"] = True
+            self._save_definition_payload(
+                draft, f"hci_0x{project.opcode:04X}_definition_draft.json"
+            )
+            return
         captures = self._store.vendor_captures(project.opcode)
         try:
             analysis = analyze_captures(captures)
@@ -1092,7 +1114,7 @@ class VendorDiscoveryWindow:
             return
         self._save_definition_payload(
             definition,
-            f"vendor_0x{project.opcode:04X}_definition.json",
+            f"{_file_prefix(project.opcode)}_definition.json",
         )
 
     def _save_definition_payload(
@@ -1108,7 +1130,7 @@ class VendorDiscoveryWindow:
             return
         path_text = filedialog.asksaveasfilename(
             parent=self._root,
-            title="ベンダーコマンド定義を保存",
+            title="HCIコマンド定義を保存",
             initialdir=str(directory.resolve()),
             initialfile=initial_file,
             defaultextension=".json",
@@ -1152,7 +1174,7 @@ class VendorDiscoveryWindow:
     def _sync_project_name(self, project: VendorDiscoveryProject) -> None:
         project.command_name = (
             self._command_name_variable.get().strip()
-            or f"Vendor_Command_0x{project.opcode:04X}"
+            or default_command_name(project.opcode)
         )
 
     def _set_report(self, text: str) -> None:
@@ -1161,6 +1183,11 @@ class VendorDiscoveryWindow:
         self._report_text.delete("1.0", tk.END)
         self._report_text.insert("1.0", safe_text)
         self._report_text.configure(state=tk.DISABLED)
+
+
+def _file_prefix(opcode: int) -> str:
+    prefix = "vendor" if opcode >> 10 == 0x3F else "hci"
+    return f"{prefix}_0x{opcode:04X}"
 
 
 class _ParameterDialog:
@@ -1197,7 +1224,11 @@ class _ParameterDialog:
         )
         choices = tk.StringVar(
             value=(
-                ", ".join(self._parameter.choices)
+                ", ".join(
+                    f"{self._parameter.choice_values[label]}={label}"
+                    if label in self._parameter.choice_values else label
+                    for label in self._parameter.choices
+                )
                 if self._parameter
                 else ""
             )
@@ -1205,13 +1236,15 @@ class _ParameterDialog:
         description = tk.StringVar(
             value=self._parameter.description if self._parameter else ""
         )
+        default = tk.StringVar(value=self._parameter.default if self._parameter else "")
         fields = (
             ("内部名", name, "entry"),
             ("表示名", display, "entry"),
             ("種類", kind, "kind"),
             ("単位", unit, "entry"),
             ("JSON数値表記", number_format, "number_format"),
-            ("選択肢（カンマ区切り）", choices, "entry"),
+            ("初期値（空欄は先頭キャプチャー値）", default, "entry"),
+            ("選択肢（名前 または 値=名前、カンマ区切り）", choices, "entry"),
             ("説明（入力値は value）", description, "entry"),
         )
         initial_focus: tk.Widget | None = None
@@ -1248,6 +1281,11 @@ class _ParameterDialog:
                 initial_focus = widget
 
         def accept() -> None:
+            try:
+                choice_labels, choice_values = parse_parameter_choices(choices.get())
+            except ValueError as exc:
+                messagebox.showerror("パラメーターエラー", str(exc), parent=dialog)
+                return
             selected_kind = PARAMETER_KIND_VALUES.get(kind.get(), kind.get())
             selected_number_format = NUMBER_FORMAT_VALUES.get(
                 number_format.get(),
@@ -1256,12 +1294,6 @@ class _ParameterDialog:
             preserve_inference = (
                 self._parameter is not None
                 and selected_kind == self._parameter.kind
-                and [
-                    value.strip()
-                    for value in choices.get().split(",")
-                    if value.strip()
-                ]
-                == self._parameter.choices
             )
             candidate = UserParameter(
                 name=name.get().strip(),
@@ -1270,11 +1302,9 @@ class _ParameterDialog:
                 unit=unit.get().strip(),
                 number_format=selected_number_format,
                 description=description.get().strip(),
-                choices=[
-                    value.strip()
-                    for value in choices.get().split(",")
-                    if value.strip()
-                ],
+                choices=choice_labels,
+                choice_values=choice_values,
+                default=default.get().strip(),
                 status=(
                     self._parameter.status
                     if preserve_inference

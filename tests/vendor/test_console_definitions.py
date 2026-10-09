@@ -46,12 +46,15 @@ class VendorConsoleDefinitionTests(unittest.TestCase):
             bytes.fromhex("01 41 FC 06 14 FB 78 56 01 AA"),
         )
 
-    def test_rejects_non_vendor_opcode(self) -> None:
+    def test_accepts_non_vendor_opcode_as_external_definition(self) -> None:
         payload = _definition_payload()
         payload["commands"][0]["opcode"] = "0x2034"
 
-        with self.assertRaisesRegex(ValueError, "not Vendor Specific"):
-            _load_payload(payload)
+        definition = _load_payload(payload).definitions[0]
+        self.assertFalse(definition.vendor_specific)
+        self.assertTrue(definition.is_external)
+        self.assertEqual(definition.category, "External HCI")
+        self.assertEqual(HciCommandEncoder().encode(definition, {}).frame[1:3], b"\x34\x20")
 
     def test_allows_multiple_variants_with_the_same_opcode(self) -> None:
         payload = _definition_payload()

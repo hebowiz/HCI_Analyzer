@@ -3,7 +3,7 @@
 ## 1. 目的
 
 HCI Vendor Command Discoveryは、最大2つのシリアルポートからHCI通信を
-リアルタイム取得し、OGF `0x3F`のVendor Specific CommandをOpcode別に比較する
+リアルタイム取得し、標準・ベンダー固有HCI CommandをOpcode別に比較する
 補助ツールである。Analyzerが保存したJSONLの追加読込にも対応する。
 
 利用者が各キャプチャへ実験時の既知パラメーター値を付与し、ツールはCommand
@@ -22,7 +22,9 @@ Parameter内の格納位置、整数型、符号、エンディアン、Enum候�
 - シリアル設定の保存形式はAnalyzerを踏襲する
 - Discovery固有設定が存在しない初回はAnalyzerの保存値を初期値にする
 
-Vendor HCI Commandは解析対象として保存する。H4 Packet Indicator `0x04`の
+HCI CommandはOGFにかかわらず解析対象として保存する。既存パーサーが
+`UNKNOWN_OPCODE`を返しても、H4ヘッダーとParameter Total Lengthが正しければ
+RAWからOpcodeとパラメーターを抽出する。H4 Packet Indicator `0x04`の
 HCI Eventは解析成否にかかわらず一覧表示し、パラメーター推定対象にはしない。
 RACEはType、Command ID、Payloadを一覧表示するが、現時点ではパラメーター
 推定対象にしない。
@@ -34,7 +36,7 @@ RACEはType、Command ID、Payloadを一覧表示するが、現時点ではパ�
 Opcode、Event名と関連Opcode、またはRACE Type／Command ID、
 Parameter／Payloadが同じ行を集約する。
 
-`選択Opcodeのみ表示`を有効にした場合、現在選択中のVendor Commandと、
+`選択Opcodeのみ表示`を有効にした場合、現在選択中のHCI Commandと、
 Command Complete／Command Status内のOpcodeまたは直前Commandとの関連付けが
 同じHCI Eventだけを表示する。関連Opcodeを特定できないEventとRACEは非表示にする。
 
@@ -113,13 +115,14 @@ Commandへ参考情報として関連付けるが、確定的な応答関連付�
 過去ログの`UNKNOWN_OPCODE`レコードもH4 RAWから再抽出する。
 
 不正JSON行は他の行の読込を止めず、読込警告として件数と内容を表示する。
+標準コマンドも同じ方法で取り込み、Command Complete／Command StatusをOpcodeで関連付ける。
 
 ## 7. ユーザー定義パラメーターと既知値
 
 利用者はパラメーターごとに次の情報を定義する。
 
 ```text
-Name / Display Name / Kind / Unit / JSON Number Format / Choices / Description
+Name / Display Name / Kind / Unit / JSON Number Format / Default / Choices / Description
 ```
 
 Kindは`auto`、`unsigned`、`signed`、`enum`、`boolean`、`bit_field`、
@@ -128,6 +131,29 @@ Bit FieldとRaw Bytesはユーザー定義を保持するが自動候補を生�
 
 JSON Number Formatは`decimal`または`hex`とし、パラメーターごとに指定する。
 既存プロジェクトでこの項目がない場合は`decimal`として読み込む。
+
+Defaultには10進数または`0x`付き16進数を指定する。空欄の場合は、出力時に先頭の
+キャプチャーから値を取得する。Choicesは従来の名前だけの指定に加え、
+`0x01=LE 1M, 0x02=LE 2M`のように数値と名前を指定できる。
+明示した数値はキャプチャーから求めたEnum値より優先する。型の範囲外の値や、
+選択肢にない明示Defaultは出力エラーとする。
+
+### 7.1 標準HCIコマンドの初期定義
+
+標準Opcodeを初めて選択したとき、`standard_defaults.py`が編集用プロジェクトを作成する。
+組み込み定義があるReceiver v1～v3、Transmitter v1～v4、Test End、Reset、
+Supported Commands v1/v2では、名前・型・Enum選択肢・説明を流用する。
+Defaultには先頭キャプチャーの値を設定する。キャプチャーに現れなかったEnum選択肢も保持する。
+
+可変長のAntenna IDsは、キャプチャー時の配列長で個別の1バイト項目へ展開する。
+Switching Pattern Lengthも独立した項目とし、v4のTX Power Levelは配列末尾の次に配置する。
+画面専用のTX Power Modeは出力せず、最小・最大出力の指定値もTX Power Levelで扱う。
+
+未登録Opcodeや既知のパラメーター長に合わないフレームでは、各バイトを
+`Parameter_0`、`Parameter_1`などの`uint8`として作成する。意味や複数バイトの境界は推測しない。
+利用者は項目の追加・編集・削除と配置の手動設定で定義を変更する。
+初期定義はOpcodeごとに一度だけ作り、追加受信やOpcode再選択で変更内容を上書きしない。
+自動作成した項目は配置確定済みとして扱い、既知値による推定をせずに出力できる。
 
 一覧から複数キャプチャーを選択し、現在選択中のパラメーターについて既知値を
 一括で割り当てる。割り当て後に一覧を再描画しても、対象キャプチャーの選択状態を
@@ -191,7 +217,7 @@ Byte重複を検証する。
 - 対象OpcodeとCommand Name
 - ユーザー定義パラメーター
 - パラメーターごとの候補と確定結果
-- Vendor HCI Command、HCI EventおよびRACEのキャプチャー
+- 標準・ベンダー固有HCI Command、HCI EventおよびRACEのキャプチャー
 - キャプチャーへ割り当てた既知値と関連応答
 
 プロジェクトを再度開くことで、パラメーターを1項目ずつ追加解析できる。
@@ -200,7 +226,9 @@ Byte重複を検証する。
 ## 10. 定義案・完成定義出力
 
 既定保存先は`vendor_definitions/`とし、ファイル名は
-`vendor_0xXXXX_definition_draft.json`とする。定義案は次の情報を持つ。
+ベンダー固有では`vendor_0xXXXX_definition_draft.json`、標準コマンドでは
+`hci_0xXXXX_definition_draft.json`とする。完成定義では末尾の`_draft`を外す。
+定義案は次の情報を持つ。
 
 - Schema Version
 - Opcode、OGF、OCF
@@ -216,12 +244,13 @@ Byte重複を検証する。
 
 `vendor_definitions/*.json`はGit管理対象外とする。
 
-Command Consoleは接続設定欄の`Vendor定義読込`からJSONを選択する。
+Command Consoleは接続設定欄の`外部定義読込`からJSONを選択する。
 Schema、Opcode、Template長、Field Offset、型、範囲、Field重複を検証し、
 不正な定義は読み込まない。
 
 `review_required: true`を含む場合は、Command名とOpcodeを示す確認ダイアログを
-表示する。利用者が承認した場合だけ`Vendor Specific`カテゴリへ追加する。
+表示する。利用者が承認した場合だけ定義を追加する。ベンダー固有コマンドは
+`Vendor Specific`、標準コマンドは`External HCI`カテゴリへ追加する。
 
 送信Parameterは`parameter_template_hex`を複製し、各FieldのOffsetへGUI入力値を
 指定型・Byte Orderで上書きして生成する。これにより、意味が未解明の固定Byteを
@@ -231,10 +260,10 @@ Schema、Opcode、Template長、Field Offset、型、範囲、Field重複を検�
 `hex`指定時はDefaultとEnum Choicesのキーを型サイズに合わせてゼロ埋めした
 `"0x0123"`形式の文字列で出力する。Command ConsoleはJSON数値、10進文字列、
 16進文字列を内部整数へ正規化してから範囲とChoicesを検証する。送信コマンドの
-可読ログでは、`hex`指定されたVendorパラメーターを同じ桁数の16進文字列で
+可読ログでは、`hex`指定された外部定義パラメーターを同じ桁数の16進文字列で
 表示する。Command Consoleの数値入力欄でもDefaultと復元値へ同じ表記を適用する。
 
-完成定義にはユーザーが入力した`description`も出力する。外部Vendor Commandの
+完成定義にはユーザーが入力した`description`も出力する。外部コマンド定義の
 Descriptionの最終の`=`より右側に`value`を含む場合、Command Consoleは`value`を現在の入力値へ
 置き換えて計算し、元の説明に`→ 計算結果`を付けて即時表示する。
 許可する構文は数値定数、`value`、`+`、`-`、`*`、`/`、`//`、`%`、単項符号、
@@ -246,8 +275,9 @@ Command Consoleは外部定義JSONへ手動追加されたCommand Completeの
 Parametersをデコードできる。Vendor Discoveryから応答パラメーターの位置・型を
 推定してResponse定義を生成する機能は、この段階では対象外とする。
 
-同じByteを複数Fieldが使用する定義、組み込みOpcodeを置換する定義、
-同一Command Name・Versionが重複する定義は拒否する。同一OpcodeでもCommand
+同じByteを複数Fieldが使用する定義と、同一カテゴリ内でCommand Name・Versionが重複する定義は拒否する。
+組み込みと同じOpcodeは別カテゴリの外部定義として追加し、組み込み定義やクイック送信は変更しない。
+パラメーター値のキャッシュもカテゴリごとに分離する。同一OpcodeでもCommand
 NameまたはVersionが異なる定義は別バリアントとして読み込める。読み込んだ定義は永続化せず、
 Command Consoleを再起動した場合は再読込する。
 
@@ -257,6 +287,16 @@ Command Consoleを再起動した場合は再読込する。
 Parameter Lengthが`0`のCommandに限り、確定パラメーターがなくても
 `parameters: []`の完成定義を出力できる。Parameter Byteを持つCommandでは、
 従来どおり少なくとも1つの確定パラメーターを必要とする。
+
+標準コマンドの定義案にも、編集済みの初期定義を使用して`review_required: true`を付ける。
+OGFはOpcodeから算出する。既存ファイルとの互換性のため、Schema Versionと
+`hci_vendor_command_definition`などの`kind`は従来どおりとする。
+Consoleは読み込んだ外部Opcodeについて、既存パーサーが解釈できないCommand／
+Command Complete／Command StatusをH4ヘッダー検証後にRAWとして受理する。
+Analyzer単体の未知Opcodeエラー動作は変更しない。
+
+出力定義は固定長である。同一Opcodeのキャプチャーに複数の長さが混在する場合は、
+不要な長さの行を除外してから出力する。配列長と項目数の連動変更は行わない。
 
 ## 11. 制約
 

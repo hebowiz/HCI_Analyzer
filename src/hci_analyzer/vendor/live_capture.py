@@ -1,4 +1,4 @@
-"""Real-time capture storage for vendor HCI commands and RACE packets."""
+"""Real-time capture storage for HCI commands, events, and RACE packets."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class DiscoveryCapture:
 
     @property
     def analyzable(self) -> bool:
-        """Return whether this item can participate in vendor-HCI inference."""
+        """Return whether this item can participate in HCI parameter inference."""
         return self.vendor_capture is not None
 
     @property
@@ -137,17 +137,11 @@ class LiveCaptureStore:
             )
             self._append_chronological(entry)
             return entry
-        if not result.success:
-            return None
         if result.packet_type == "HCI_Command":
-            decoded = result.decoded
-            if not decoded.get("vendor_specific"):
+            raw = record.raw_data
+            if len(raw) < 4 or raw[0] != 0x01 or len(raw) != 4 + raw[3]:
                 return None
-            opcode = _integer_value(decoded.get("opcode_value"))
-            if opcode is None and len(record.raw_data) >= 3:
-                opcode = int.from_bytes(record.raw_data[1:3], "little")
-            if opcode is None or ((opcode >> 10) & 0x3F) != 0x3F:
-                return None
+            opcode = int.from_bytes(raw[1:3], "little")
             parameters = record.raw_data[4:] if len(record.raw_data) >= 4 else b""
             vendor = VendorCapture(
                 capture_id=self._new_id("vendor"),
@@ -163,14 +157,17 @@ class LiveCaptureStore:
                 capture_id=vendor.capture_id,
                 timestamp=vendor.timestamp,
                 source=vendor.source,
-                protocol="HCI Vendor",
+                protocol="HCI Vendor" if opcode >> 10 == 0x3F else "HCI Command",
                 raw_data=record.raw_data,
                 vendor_capture=vendor,
             )
             self._append_chronological(entry)
             self._pending_by_opcode.setdefault(opcode, []).append(vendor)
-            self._latest_vendor = vendor
+            if opcode >> 10 == 0x3F:
+                self._latest_vendor = vendor
             return entry
+        if not result.success:
+            return None
         if result.packet_type == "RACE":
             decoded = result.decoded
             entry = DiscoveryCapture(
@@ -199,7 +196,9 @@ class LiveCaptureStore:
                 capture_id=capture.capture_id,
                 timestamp=capture.timestamp,
                 source=capture.source,
-                protocol="HCI Vendor",
+                protocol=(
+                    "HCI Vendor" if capture.opcode >> 10 == 0x3F else "HCI Command"
+                ),
                 raw_data=capture.raw_data,
                 vendor_capture=capture,
             )
@@ -261,6 +260,7 @@ class LiveCaptureStore:
         return len(removed)
 
     def vendor_opcodes(self) -> tuple[int, ...]:
+        """Return all HCI command opcodes (legacy public method name)."""
         return tuple(
             sorted(
                 {
@@ -272,6 +272,7 @@ class LiveCaptureStore:
         )
 
     def vendor_captures(self, opcode: int) -> list[VendorCapture]:
+        """Return standard or vendor command captures for the selected opcode."""
         return [
             entry.vendor_capture
             for entry in self._entries
@@ -280,7 +281,7 @@ class LiveCaptureStore:
 
     def _associate_response(self, raw_data: bytes) -> int | None:
         opcode = _response_opcode(raw_data)
-        if opcode is not None and ((opcode >> 10) & 0x3F) == 0x3F:
+        if opcode is not None:
             pending = self._pending_by_opcode.get(opcode, [])
             if pending:
                 pending.pop(0).responses.append(raw_data)
@@ -311,6 +312,8 @@ class LiveCaptureStore:
 
 
 def _response_opcode(raw: bytes) -> int | None:
+    if len(raw) < 3 or raw[0] != 0x04 or len(raw) != 3 + raw[2]:
+        return None
     if len(raw) >= 6 and raw[0] == 0x04 and raw[1] == 0x0E:
         return int.from_bytes(raw[4:6], "little")
     if len(raw) >= 7 and raw[0] == 0x04 and raw[1] == 0x0F:

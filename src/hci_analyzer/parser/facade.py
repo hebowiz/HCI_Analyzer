@@ -5,6 +5,7 @@ import re
 from hci_analyzer.models import H4PacketIndicator, ParseError, ParseResult
 from hci_analyzer.parser.command import HciCommandParser
 from hci_analyzer.parser.event import HciEventParser
+from hci_analyzer.parser.external import parse_external_envelope
 from hci_analyzer.parser.race import RaceParser, race_frame_length
 
 
@@ -22,6 +23,11 @@ class HciParser:
         self._event_parser = event_parser or HciEventParser()
         self._race_parser = RaceParser()
         self._prefer_race = prefer_race
+        self._external_opcodes: frozenset[int] = frozenset()
+
+    def set_external_opcodes(self, opcodes: set[int]) -> None:
+        """Enable RAW envelope fallback only for loaded Console definitions."""
+        self._external_opcodes = frozenset(opcodes)
 
     def parse_bytes(self, data: bytes) -> ParseResult:
         """Parse a complete H4 frame supplied as bytes."""
@@ -36,10 +42,15 @@ class HciParser:
             return self._error(data, "EMPTY_INPUT", "Input is empty")
 
         indicator = data[0]
-        if indicator == H4PacketIndicator.COMMAND:
-            return self._command_parser.parse(data)
-        if indicator == H4PacketIndicator.EVENT:
-            return self._event_parser.parse(data)
+        if indicator in (H4PacketIndicator.COMMAND, H4PacketIndicator.EVENT):
+            result = (
+                self._command_parser.parse(data)
+                if indicator == H4PacketIndicator.COMMAND
+                else self._event_parser.parse(data)
+            )
+            if not result.success and self._external_opcodes:
+                return parse_external_envelope(data, self._external_opcodes) or result
+            return result
         if (
             indicator == H4PacketIndicator.ISO_DATA
             and self._prefer_race
