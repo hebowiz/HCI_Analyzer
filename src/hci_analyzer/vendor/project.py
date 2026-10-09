@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from hci_analyzer.command_builder.definitions import COMMAND_DEFINITIONS_BY_OPCODE
+from hci_analyzer.command_builder.raw_bytes import parse_raw_bytes
 from hci_analyzer.vendor.discovery import FieldCandidate, VendorCapture
-from hci_analyzer.vendor.console_definitions import SUPPORTED_FIELD_TYPES
+from hci_analyzer.vendor.console_definitions import SUPPORTED_FIELD_TYPES, field_size
 from hci_analyzer.vendor.live_capture import DiscoveryCapture
 
 
@@ -24,7 +25,7 @@ PARAMETER_KINDS = (
     "raw_bytes",
 )
 NUMBER_FORMATS = ("decimal", "hex")
-MANUAL_FIELD_TYPES = tuple(SUPPORTED_FIELD_TYPES)
+MANUAL_FIELD_TYPES = (*SUPPORTED_FIELD_TYPES, "raw_bytes")
 
 
 @dataclass(slots=True)
@@ -60,7 +61,16 @@ class UserParameter:
         if self.kind in ("enum", "boolean") and len(self.choices) < 2:
             raise ValueError("Enum and Boolean parameters require at least two choices")
         if self.default.strip():
-            _parse_number(self.default)
+            if self.kind == "raw_bytes":
+                size = (
+                    field_size("raw_bytes", self.confirmed_candidate.get("size"))
+                    if self.confirmed_candidate is not None else None
+                )
+                parse_raw_bytes(self.default, size)
+            else:
+                _parse_number(self.default)
+        if self.kind == "raw_bytes" and (self.choices or self.choice_values):
+            raise ValueError("RAW byte parameters do not support enum choices")
         if any(label not in self.choices for label in self.choice_values):
             raise ValueError("Explicit enum values must refer to existing choices")
         if len(set(self.choice_values.values())) != len(self.choice_values):
@@ -94,13 +104,13 @@ class UserParameter:
         self.confirmed_candidate = dict(self.candidates[index])
         self.status = "confirmed"
 
-    def set_manual_candidate(self, offset: int, data_type: str) -> None:
+    def set_manual_candidate(
+        self, offset: int, data_type: str, size: int | None = None,
+    ) -> None:
         """Confirm a user-specified byte offset and encoding type."""
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             raise ValueError("Offset must be a non-negative integer")
-        if data_type not in SUPPORTED_FIELD_TYPES:
-            raise ValueError(f"Unsupported field type: {data_type}")
-        size = SUPPORTED_FIELD_TYPES[data_type][0]
+        size = field_size(data_type, size)
         if self.kind == "unsigned" and not data_type.startswith("uint"):
             raise ValueError("Unsigned parameters require a uint field type")
         if self.kind == "signed" and not data_type.startswith("int"):
@@ -109,10 +119,12 @@ class UserParameter:
             raise ValueError("Enum parameters require an enum field type")
         if self.kind == "boolean" and data_type != "enum_u8":
             raise ValueError("Boolean parameters require enum_u8")
-        if self.kind in ("bit_field", "raw_bytes"):
-            raise ValueError(
-                "Bit field and raw byte manual layouts are not supported yet"
-            )
+        if self.kind == "bit_field":
+            raise ValueError("Bit field manual layouts are not supported yet")
+        if (self.kind == "raw_bytes") != (data_type == "raw_bytes"):
+            raise ValueError("RAW byte layout requires the RAW byte parameter kind")
+        if data_type == "raw_bytes" and self.default.strip():
+            parse_raw_bytes(self.default, size)
         self.confirmed_candidate = {
             "offset": offset,
             "type": data_type,
@@ -166,6 +178,7 @@ class VendorDiscoveryProject:
         offset: int,
         data_type: str,
         parameter_length: int,
+        size: int | None = None,
     ) -> None:
         """Set and immediately validate a manual layout against the command."""
         parameter = self.parameter(name)
@@ -177,7 +190,7 @@ class VendorDiscoveryProject:
             else None
         )
         previous_status = parameter.status
-        parameter.set_manual_candidate(offset, data_type)
+        parameter.set_manual_candidate(offset, data_type, size)
         try:
             _validate_confirmed_layouts(self.parameters, parameter_length)
         except ValueError:
@@ -317,18 +330,7 @@ def build_console_definition(
             field["description"] = parameter.description
         offset = int(candidate["offset"])
         data_type = str(candidate["type"])
-        size = int(candidate["size"])
-        if data_type not in SUPPORTED_FIELD_TYPES:
-            raise ValueError(
-                f"Confirmed parameter {parameter.name} has unsupported type "
-                f"{data_type}"
-            )
-        expected_size = SUPPORTED_FIELD_TYPES[data_type][0]
-        if size != expected_size:
-            raise ValueError(
-                f"Confirmed parameter {parameter.name} size does not match "
-                f"{data_type}"
-            )
+        size = field_size(data_type, candidate["size"])
         if offset < 0 or offset + size > parameter_length:
             raise ValueError(
                 f"Confirmed parameter {parameter.name} exceeds the parameter "
@@ -341,6 +343,15 @@ def build_console_definition(
                     f"{parameter.name} overlap at byte {byte_index}"
                 )
             occupied[byte_index] = parameter.name
+        if data_type == "raw_bytes":
+            default_bytes = (
+                parameter.default if parameter.default.strip()
+                else evidence[0].parameters[offset : offset + size]
+            )
+            field["default"] = parse_raw_bytes(default_bytes, size).hex(" ").upper()
+            field["number_format"] = "hex"
+            fields.append(field)
+            continue
         signed = data_type.startswith("int")
         byte_order = "big" if data_type.endswith("_be") else "little"
         default = int.from_bytes(
@@ -456,13 +467,8 @@ def _validate_confirmed_layouts(
         if candidate is None:
             continue
         data_type = str(candidate.get("type", ""))
-        if data_type not in SUPPORTED_FIELD_TYPES:
-            raise ValueError(
-                f"Confirmed parameter {parameter.name} has unsupported type "
-                f"{data_type}"
-            )
         offset = int(candidate.get("offset", -1))
-        size = SUPPORTED_FIELD_TYPES[data_type][0]
+        size = field_size(data_type, candidate.get("size"))
         if offset < 0 or offset + size > parameter_length:
             raise ValueError(
                 f"Confirmed parameter {parameter.name} exceeds the parameter "

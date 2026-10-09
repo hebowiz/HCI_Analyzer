@@ -23,6 +23,7 @@ from hci_analyzer.config import (
     SUPPORTED_BAUD_RATES,
     SUPPORTED_RESPONSE_TIMEOUT_SECONDS,
 )
+from hci_analyzer.command_builder.raw_bytes import parse_raw_bytes
 from hci_analyzer.presentation.transport_log import format_transport_event
 from hci_analyzer.serial.transport import TransportEvent, TransportEventKind
 
@@ -755,7 +756,7 @@ class CommandConsoleWindow:
             widget.grid(row=0, column=1, sticky="w", pady=(3, 0))
             self._parameter_vars[parameter.name] = variable
             if (
-                parameter.description
+                (parameter.description or parameter.kind == ParameterKind.HEX_BYTES)
                 and self._current_definition is not None
                 and self._current_definition.is_external
             ):
@@ -867,6 +868,8 @@ class CommandConsoleWindow:
             if parameter is None or variable is None:
                 continue
             details: list[str] = []
+            if parameter.kind == ParameterKind.HEX_BYTES:
+                details.append(f"Hex入力 / {parameter.size}バイト / 入力順で送信")
             display_mapping = self._enum_display_to_value.get(name)
             descriptions = self._enum_full_descriptions.get(name)
             if display_mapping is not None and descriptions is not None:
@@ -887,7 +890,7 @@ class CommandConsoleWindow:
                     _format_parameter_description(
                         parameter.description,
                         value,
-                        enable_calculation=True,
+                        enable_calculation=parameter.kind != ParameterKind.HEX_BYTES,
                     )
                 )
             detail_label.configure(text="\n".join(details))
@@ -1032,6 +1035,11 @@ def _format_parameter_input(
     value: object,
 ) -> str:
     """Format a scalar value for its generated Console input widget."""
+    if parameter.kind == ParameterKind.HEX_BYTES:
+        try:
+            return parse_raw_bytes(value).hex(" ").upper()
+        except ValueError:
+            return str(value)
     if parameter.number_format != "hex":
         return str(value)
     try:

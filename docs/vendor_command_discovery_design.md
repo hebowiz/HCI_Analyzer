@@ -127,12 +127,13 @@ Name / Display Name / Kind / Unit / JSON Number Format / Default / Choices / Des
 
 Kindは`auto`、`unsigned`、`signed`、`enum`、`boolean`、`bit_field`、
 `raw_bytes`を持つ。初版の自動推定は`auto`、整数、Enumを対象とし、
-Bit FieldとRaw Bytesはユーザー定義を保持するが自動候補を生成しない。
+Bit FieldとRaw Bytesの自動候補は生成しない。
+Raw Bytesは固定長の配置を手動設定してConsole用定義へ出力する。
 
 JSON Number Formatは`decimal`または`hex`とし、パラメーターごとに指定する。
 既存プロジェクトでこの項目がない場合は`decimal`として読み込む。
 
-Defaultには10進数または`0x`付き16進数を指定する。空欄の場合は、出力時に先頭の
+数値型のDefaultには10進数または`0x`付き16進数を指定する。空欄の場合は、出力時に先頭の
 キャプチャーから値を取得する。Choicesは従来の名前だけの指定に加え、
 `0x01=LE 1M, 0x02=LE 2M`のように数値と名前を指定できる。
 明示した数値はキャプチャーから求めたEnum値より優先する。型の範囲外の値や、
@@ -209,6 +210,38 @@ Big Endianを一意に判定できないことがある。その場合は両方�
 手動設定は`source: manual`を持つ確定候補として解析プロジェクトへ保存する。
 完成定義出力時に、型とSizeの一致、Parameter Template範囲、他フィールドとの
 Byte重複を検証する。
+
+### 8.2 固定長バイト列の手動設定
+
+Kindを`raw_bytes`にしたパラメーターでは、Offsetとバイト数を指定する。
+OffsetはParameter先頭を0とする。バイト数は1～255の整数で、
+キャプチャーの範囲外や他の確定フィールドと重複する配置は拒否する。
+プロジェクトには型・Offset・バイト数・初期値を保存する。
+
+Defaultは`01 AB 00 FF`のようなHex文字列とする。空白なしの`01AB00FF`も受け付ける。
+空欄の場合は先頭キャプチャーの該当範囲を使う。入力したDefaultの長さは、
+手動設定したバイト数と一致する必要がある。配置確定後に長さを変える場合は、
+Defaultをいったん空欄にして配置を変更し、新しい長さのDefaultを入力する。
+
+RAWではJSON数値表記を16進に固定し、Enum選択肢は使用しない。
+定義案・完成定義とも、手動で確定したRAWフィールドを次の形式で出力する。
+
+```json
+{
+  "name": "data",
+  "offset": 2,
+  "type": "raw_bytes",
+  "size": 4,
+  "number_format": "hex",
+  "default": "01 AB 00 FF"
+}
+```
+
+Consoleでは固定長のHex入力欄として扱い、バイト順を変えずに送信する。
+ログにも大文字・空白区切りのHex文字列を表示する。整数への変換や
+Descriptionの`value`計算は行わない。Command Completeの応答定義でも
+同じ型を使用できる。可変長バイト列とビット単位の手動配置は対象外とする。
+RAWパラメーターで解析ボタンを押しても、自動推定は行わず確定済み配置を維持する。
 
 ## 9. 解析プロジェクト
 

@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from hci_analyzer.command_builder.definitions import ConsoleCommandDefinition
 from hci_analyzer.command_builder.definitions import ParameterDefinition, ParameterKind
+from hci_analyzer.command_builder.raw_bytes import parse_raw_bytes, validate_byte_size
 
 
 @dataclass(slots=True, frozen=True)
@@ -48,6 +49,14 @@ class CommandValidator:
             value = parameter_values.get(parameter.name, parameter.default)
             if parameter.kind == ParameterKind.INTEGER_ARRAY:
                 self._validate_array(parameter, value, normalized, issues)
+            elif parameter.kind == ParameterKind.HEX_BYTES:
+                try:
+                    size = validate_byte_size(parameter.size)
+                    normalized[parameter.name] = parse_raw_bytes(value, size).hex(" ").upper()
+                except ValueError as exc:
+                    issues.append(ValidationIssue(
+                        "INVALID_RAW_BYTES", f"{parameter.label}: {exc}", parameter.name
+                    ))
             else:
                 self._validate_scalar(parameter, value, normalized, issues)
 

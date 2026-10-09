@@ -963,6 +963,12 @@ class VendorDiscoveryWindow:
         parameter = self._selected_parameter()
         if project is None or parameter is None or project.opcode is None:
             return
+        if parameter.kind == "raw_bytes":
+            self._set_report(
+                "RAW byte fields use a manual offset and fixed byte size. "
+                "Automatic inference is not supported; the existing layout is unchanged."
+            )
+            return
         captures = self._store.vendor_captures(project.opcode)
         try:
             analysis = analyze_captures(captures)
@@ -1024,7 +1030,7 @@ class VendorDiscoveryWindow:
         result = _ManualLayoutDialog(self._root, parameter).show()
         if result is None:
             return
-        offset, data_type = result
+        offset, data_type, size = result
         project = self._current_project()
         if project is None or project.opcode is None:
             return
@@ -1042,6 +1048,7 @@ class VendorDiscoveryWindow:
                 offset,
                 data_type,
                 min(len(capture.parameters) for capture in captures),
+                size=size,
             )
         except ValueError as exc:
             self.show_error("配置設定エラー", exc)
@@ -1094,6 +1101,21 @@ class VendorDiscoveryWindow:
             project.command_name,
             captures,
         )
+        if any(p.kind == "raw_bytes" and p.confirmed_candidate for p in project.parameters):
+            try:
+                confirmed = build_console_definition(project, captures)
+            except ValueError as exc:
+                self.show_error("定義案出力エラー", exc)
+                return
+            raw_fields = [
+                field for field in confirmed["commands"][0]["parameters"]
+                if field["type"] == "raw_bytes"
+            ]
+            raw_names = {field["name"] for field in raw_fields}
+            draft["commands"][0]["parameters"] = [
+                field for field in draft["commands"][0]["parameters"]
+                if field["name"] not in raw_names
+            ] + raw_fields
         self._save_definition_payload(
             draft,
             f"vendor_0x{project.opcode:04X}_definition_draft.json",
@@ -1248,6 +1270,7 @@ class _ParameterDialog:
             ("説明（入力値は value）", description, "entry"),
         )
         initial_focus: tk.Widget | None = None
+        field_widgets: dict[str, tk.Widget] = {}
         for row, (label, variable, editor) in enumerate(fields):
             ttk.Label(dialog, text=label).grid(
                 row=row, column=0, sticky="e", padx=(10, 6), pady=5
@@ -1277,16 +1300,29 @@ class _ParameterDialog:
             else:
                 widget = ttk.Entry(dialog, textvariable=variable, width=37)
             widget.grid(row=row, column=1, padx=(0, 10), pady=5)
+            field_widgets[str(variable)] = widget
             if initial_focus is None:
                 initial_focus = widget
 
+        def update_kind(*_args: object) -> None:
+            is_raw = PARAMETER_KIND_VALUES.get(kind.get(), kind.get()) == "raw_bytes"
+            if is_raw:
+                number_format.set(NUMBER_FORMAT_LABELS["hex"])
+            field_widgets[str(number_format)].configure(state="disabled" if is_raw else "readonly")
+            field_widgets[str(choices)].configure(state="disabled" if is_raw else "normal")
+
+        kind.trace_add("write", update_kind)
+        update_kind()
+
         def accept() -> None:
+            selected_kind = PARAMETER_KIND_VALUES.get(kind.get(), kind.get())
             try:
-                choice_labels, choice_values = parse_parameter_choices(choices.get())
+                choice_labels, choice_values = parse_parameter_choices(
+                    "" if selected_kind == "raw_bytes" else choices.get()
+                )
             except ValueError as exc:
                 messagebox.showerror("パラメーターエラー", str(exc), parent=dialog)
                 return
-            selected_kind = PARAMETER_KIND_VALUES.get(kind.get(), kind.get())
             selected_number_format = NUMBER_FORMAT_VALUES.get(
                 number_format.get(),
                 number_format.get(),
@@ -1360,9 +1396,9 @@ class _ManualLayoutDialog:
     def __init__(self, parent: tk.Tk, parameter: UserParameter) -> None:
         self._parent = parent
         self._parameter = parameter
-        self._result: tuple[int, str] | None = None
+        self._result: tuple[int, str, int | None] | None = None
 
-    def show(self) -> tuple[int, str] | None:
+    def show(self) -> tuple[int, str, int | None] | None:
         dialog = tk.Toplevel(self._parent)
         dialog.title("配置の手動設定")
         dialog.transient(self._parent)
@@ -1372,6 +1408,8 @@ class _ManualLayoutDialog:
         data_type = tk.StringVar(
             value=str(candidate.get("type", _default_manual_type(self._parameter)))
         )
+        is_raw = self._parameter.kind == "raw_bytes"
+        size = tk.StringVar(value=str(candidate.get("size", 1)))
 
         ttk.Label(dialog, text="パラメーター").grid(
             row=0, column=0, sticky="e", padx=(10, 6), pady=6
@@ -1393,20 +1431,29 @@ class _ManualLayoutDialog:
         ttk.Combobox(
             dialog,
             textvariable=data_type,
-            values=MANUAL_FIELD_TYPES,
+            values=("raw_bytes",) if is_raw else tuple(t for t in MANUAL_FIELD_TYPES if t != "raw_bytes"),
             state="readonly",
             width=22,
         ).grid(row=2, column=1, sticky="w", padx=(0, 10), pady=6)
+        if is_raw:
+            ttk.Label(dialog, text="バイト数（1～255）").grid(
+                row=3, column=0, sticky="e", padx=(10, 6), pady=6
+            )
+            ttk.Entry(dialog, textvariable=size, width=24).grid(
+                row=3, column=1, sticky="w", padx=(0, 10), pady=6
+            )
         def accept() -> None:
             try:
                 parsed_offset = int(offset.get().strip(), 0)
+                parsed_size = int(size.get().strip(), 10) if is_raw else None
                 probe = UserParameter(
                     name=self._parameter.name,
                     display_name=self._parameter.display_name,
                     kind=self._parameter.kind,
                     choices=list(self._parameter.choices),
+                    default=self._parameter.default,
                 )
-                probe.set_manual_candidate(parsed_offset, data_type.get())
+                probe.set_manual_candidate(parsed_offset, data_type.get(), parsed_size)
             except ValueError as exc:
                 messagebox.showerror(
                     "配置設定エラー",
@@ -1414,11 +1461,11 @@ class _ManualLayoutDialog:
                     parent=dialog,
                 )
                 return
-            self._result = parsed_offset, data_type.get()
+            self._result = parsed_offset, data_type.get(), parsed_size
             dialog.destroy()
 
         buttons = ttk.Frame(dialog)
-        buttons.grid(row=3, column=0, columnspan=2, pady=(8, 10))
+        buttons.grid(row=4 if is_raw else 3, column=0, columnspan=2, pady=(8, 10))
         ttk.Button(buttons, text="決定", command=accept).grid(
             row=0, column=0, padx=4
         )
@@ -1450,6 +1497,8 @@ def _preferred_port(
 
 
 def _default_manual_type(parameter: UserParameter) -> str:
+    if parameter.kind == "raw_bytes":
+        return "raw_bytes"
     if parameter.kind == "signed":
         return "int8"
     if parameter.kind in ("enum", "boolean"):

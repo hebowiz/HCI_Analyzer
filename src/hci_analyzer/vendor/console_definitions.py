@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from hci_analyzer.command_builder.raw_bytes import parse_raw_bytes, validate_byte_size
 from hci_analyzer.command_builder.definitions import (
     VENDOR_SPECIFIC,
     ConsoleCommandDefinition,
@@ -39,6 +40,22 @@ SUPPORTED_FIELD_TYPES = {
     "enum_u32_le": (4, False, "little"),
     "enum_u32_be": (4, False, "big"),
 }
+
+
+def field_size(data_type: str, size: object = None) -> int:
+    """Resolve scalar widths or the explicit width of a RAW byte field."""
+    if data_type == "raw_bytes":
+        return validate_byte_size(size)
+    if data_type not in SUPPORTED_FIELD_TYPES:
+        raise ValueError(f"Unsupported field type: {data_type}")
+    expected = SUPPORTED_FIELD_TYPES[data_type][0]
+    if size is not None and (
+        not isinstance(size, int) or isinstance(size, bool) or size != expected
+    ):
+        raise ValueError(f"Field size does not match {data_type}")
+    return expected
+
+
 @dataclass(slots=True, frozen=True)
 class LoadedVendorDefinitions:
     """Validated external definitions and their review state."""
@@ -102,8 +119,15 @@ def encode_vendor_parameters(
     for parameter in definition.parameters:
         offset = parameter.byte_offset
         encoding_type = parameter.encoding_type
-        if offset is None or encoding_type not in SUPPORTED_FIELD_TYPES:
+        if offset is None or encoding_type is None:
             raise ValueError(f"{parameter.label} has no supported byte encoding")
+        size = field_size(encoding_type, parameter.size)
+        if offset < 0 or offset + size > len(encoded):
+            raise ValueError(f"{parameter.label} exceeds the parameter template")
+        if encoding_type == "raw_bytes":
+            raw = parse_raw_bytes(values.get(parameter.name), size)
+            encoded[offset : offset + size] = raw
+            continue
         size, signed, byte_order = SUPPORTED_FIELD_TYPES[encoding_type]
         try:
             raw = int(values[parameter.name]).to_bytes(
@@ -167,11 +191,15 @@ def _decode_parameter_fields(
     for parameter in parameters:
         offset = parameter.byte_offset
         encoding_type = parameter.encoding_type
-        if offset is None or encoding_type not in SUPPORTED_FIELD_TYPES:
+        if offset is None or encoding_type is None:
             continue
-        size, signed, byte_order = SUPPORTED_FIELD_TYPES[encoding_type]
+        size = field_size(encoding_type, parameter.size)
         if offset + size > len(data):
             continue
+        if encoding_type == "raw_bytes":
+            decoded[parameter.name] = data[offset : offset + size].hex(" ").upper()
+            continue
+        size, signed, byte_order = SUPPORTED_FIELD_TYPES[encoding_type]
         value = int.from_bytes(
             data[offset : offset + size],
             byte_order,
@@ -241,7 +269,7 @@ def _load_command(
                 f"{parameter.name}"
             )
         parameter_names.add(parameter.name)
-        size = SUPPORTED_FIELD_TYPES[parameter.encoding_type][0]
+        size = field_size(parameter.encoding_type, parameter.size)
         for byte_index in range(parameter.byte_offset, parameter.byte_offset + size):
             if byte_index in occupied:
                 raise ValueError(
@@ -309,6 +337,8 @@ def _load_parameter(
     if not isinstance(offset, int) or isinstance(offset, bool):
         raise ValueError(f"{location}.offset must be an integer")
     encoding_type = item.get("type")
+    if encoding_type == "raw_bytes":
+        return _load_raw_parameter(item, location, name, offset, parameter_length, template)
     if encoding_type not in SUPPORTED_FIELD_TYPES:
         raise ValueError(f"{location}.type is unsupported: {encoding_type}")
     size, signed, byte_order = SUPPORTED_FIELD_TYPES[encoding_type]
@@ -429,7 +459,7 @@ def _load_response(
                 f"parameter name {parameter.name}"
             )
         names.add(parameter.name)
-        size = SUPPORTED_FIELD_TYPES[parameter.encoding_type][0]
+        size = field_size(parameter.encoding_type, parameter.size)
         for byte_index in range(
             parameter.byte_offset,
             parameter.byte_offset + size,
@@ -443,6 +473,34 @@ def _load_response(
             occupied[byte_index] = parameter.name
         parameters.append(parameter)
     return response_kind, raw_length, tuple(parameters)
+
+
+def _load_raw_parameter(
+    item: dict[str, Any], location: str, name: str, offset: int,
+    parameter_length: int, template: bytes | None,
+) -> ParameterDefinition:
+    size = field_size("raw_bytes", item.get("size"))
+    if offset < 0 or offset + size > parameter_length:
+        raise ValueError(f"{location} exceeds the parameter template")
+    if item.get("choices") not in (None, {}):
+        raise ValueError(f"{location}: RAW byte fields do not support enum choices")
+    description = item.get("description", "")
+    if not isinstance(description, str):
+        raise ValueError(f"{location}.description must be a string")
+    label = item.get("label", name)
+    unit = item.get("unit")
+    raw_default = item.get("default")
+    if raw_default is None and template is not None:
+        raw_default = template[offset : offset + size]
+    default = None
+    if raw_default is not None:
+        default = parse_raw_bytes(raw_default, size).hex(" ").upper()
+    return ParameterDefinition(
+        name=name.strip(), label=label.strip() if isinstance(label, str) and label.strip() else name,
+        kind=ParameterKind.HEX_BYTES, size=size, default=default,
+        description=description, unit=unit if isinstance(unit, str) else None,
+        byte_offset=offset, encoding_type="raw_bytes", number_format="hex",
+    )
 
 
 def _parse_opcode(value: Any, command_index: int) -> int:

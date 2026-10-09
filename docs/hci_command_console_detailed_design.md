@@ -405,6 +405,18 @@ Field重複、同一ファイル内のCommand Name・Versionの重複は拒否�
 組み込みと同じOpcodeでも別定義として保持し、組み込み定義とクイックボタンは変更しない。
 パラメーター値の記憶はカテゴリごとに分離する。
 
+固定長バイト列は`type: "raw_bytes"`と`size`で定義する。`size`は1～255の整数とし、
+Offsetから指定バイト数がTemplateの範囲内に収まることを検証する。
+Defaultは`"01 AB 00 FF"`のようなHex文字列で、省略時はTemplateの該当範囲を使う。
+ConsoleではHex入力欄とバイト数の案内を表示する。空白なしの入力も受け付けるが、
+不正なHexとバイト数の不一致は送信前にエラーにする。
+
+入力値は大文字・空白区切りのHex文字列として記憶し、先頭の`00`も保持する。
+送信時はTemplateの該当範囲だけを入力順で上書きする。整数への変換や
+エンディアンによる並べ替えは行わない。ログにも同じ形式のHex文字列を表示する。
+Command Completeの応答パラメーターにも`raw_bytes`と`size`を指定できる。
+RAWではEnum選択肢とDescriptionの`value`計算を使用しない。可変長は対象外とする。
+
 外部定義のエンコードはOGFではなくParameter Templateの有無で選択する。
 既存パーサーが解釈できない場合も、読込済みの外部Opcodeに限ってH4ヘッダーを検証し、
 Command／Command Complete／Command StatusをRAWとして受理する。
